@@ -1,5 +1,27 @@
 # @cloudflare/think
 
+## 0.2.1
+
+### Patch Changes
+
+- [#1275](https://github.com/cloudflare/agents/pull/1275) [`37b2ce3`](https://github.com/cloudflare/agents/commit/37b2ce37913566ce81d30377d5cb5b224765a3f3) Thanks [@threepointone](https://github.com/threepointone)! - Add built-in workspace to Think. Every Think instance now has `this.workspace` backed by the DO's SQLite storage, and workspace tools (read, write, edit, list, find, grep, delete) are automatically merged into every chat turn. Override `workspace` to add R2 spillover for large files. `@cloudflare/shell` is now a required peer dependency.
+
+- [#1278](https://github.com/cloudflare/agents/pull/1278) [`8c7caab`](https://github.com/cloudflare/agents/commit/8c7caabb68361c8ce71b10e292d6dd33a9cc72dd) Thanks [@threepointone](https://github.com/threepointone)! - Think now owns the inference loop with lifecycle hooks at every stage.
+
+  **Breaking:** `onChatMessage()`, `assembleContext()`, and `getMaxSteps()` are removed. Use lifecycle hooks and the `maxSteps` property instead. If you need full custom inference, extend `Agent` directly.
+
+  **New lifecycle hooks:** `beforeTurn`, `beforeToolCall`, `afterToolCall`, `onStepFinish`, `onChunk` — fire on every turn from all entry paths (WebSocket, `chat()`, `saveMessages`, auto-continuation).
+
+  **`beforeTurn(ctx)`** receives the assembled system prompt, messages, tools, and model. Return a `TurnConfig` to override any part — model, system prompt, messages, tools, activeTools, toolChoice, maxSteps, providerOptions.
+
+  **`maxSteps`** is now a property (default 10) instead of a method. Override per-turn via `TurnConfig.maxSteps`.
+
+  **MCP tools auto-merged** — no need to manually merge `this.mcp.getAITools()` in `getTools()`.
+
+  **Dynamic context blocks:** `Session.addContext()` and `Session.removeContext()` allow adding/removing context blocks after session initialization (e.g., from extensions).
+
+  **Extension manifest expanded** with `context` (namespaced context block declarations) and `hooks` fields.
+
 ## 0.2.0
 
 ### Minor Changes

@@ -9,14 +9,19 @@
  * tree-structured messages, context blocks, compaction, FTS5 search, and
  * multi-session support.
  *
- * Override points:
+ * Configuration overrides:
  *   - getModel()            — return the LanguageModel to use
  *   - getSystemPrompt()     — return the system prompt (fallback when no context blocks)
  *   - getTools()            — return the ToolSet for the agentic loop
- *   - getMaxSteps()         — max tool-call rounds per turn (default: 10)
+ *   - maxSteps              — max tool-call rounds per turn (default: 10)
  *   - configureSession()    — add context blocks, compaction, search, skills
- *   - assembleContext()     — customize context assembly (system prompt + messages)
- *   - onChatMessage()       — full control over inference (override the agentic loop)
+ *
+ * Lifecycle hooks:
+ *   - beforeTurn()          — inspect/override context, tools, model before inference
+ *   - beforeToolCall()      — intercept tool calls (block, modify args, substitute result)
+ *   - afterToolCall()       — inspect tool results after execution
+ *   - onStepFinish()        — per-step callback (logging, analytics)
+ *   - onChunk()             — per-chunk callback (streaming analytics)
  *   - onChatResponse()      — post-turn lifecycle hook (logging, chaining, analytics)
  *   - onChatError()         — customize error handling
  *
@@ -138,7 +143,7 @@ export interface StreamCallback {
 }
 
 /**
- * Minimal interface for the result of `onChatMessage()`.
+ * Minimal interface for the result of the inference loop.
  * The AI SDK's `streamText()` result satisfies this interface.
  */
 export interface StreamableResult {
@@ -151,21 +156,6 @@ export interface StreamableResult {
 export interface ChatOptions {
   signal?: AbortSignal;
   tools?: ToolSet;
-}
-
-/**
- * Options passed to the onChatMessage handler.
- */
-export interface ChatMessageOptions {
-  signal?: AbortSignal;
-  tools?: ToolSet;
-  /** Client-provided tool schemas for dynamic tool registration. */
-  clientTools?: ClientToolSchema[];
-  /** Whether this is a continuation turn (auto-continue after tool result, recovery).
-   * Explicitly set to `false` for initial turns and `true` for continuations. */
-  continuation?: boolean;
-  /** Custom body fields from the client request. Persisted across hibernation. */
-  body?: Record<string, unknown>;
 }
 
 /**
@@ -198,6 +188,156 @@ export type ChatRecoveryOptions = {
   persist?: boolean;
   continue?: boolean;
 };
+
+// ── Lifecycle hook types ────────────────────────────────────────
+
+/**
+ * A chat turn request. Built automatically by each entry path
+ * (WebSocket, chat(), saveMessages, auto-continuation) and passed
+ * to Think's inference loop.
+ */
+export interface TurnInput {
+  signal?: AbortSignal;
+  /** Extra tools from the caller (e.g. chat() options) — highest merge priority. */
+  callerTools?: ToolSet;
+  /** Client-provided tool schemas for dynamic tool registration. */
+  clientTools?: ClientToolSchema[];
+  /** Custom body fields from the client request. */
+  body?: Record<string, unknown>;
+  /** Whether this is a continuation turn (auto-continue after tool result, recovery). */
+  continuation: boolean;
+}
+
+/**
+ * Context passed to the `beforeTurn` hook.
+ * Contains everything Think assembled — the hook can inspect and override.
+ */
+export interface TurnContext {
+  /** Assembled system prompt (from context blocks or getSystemPrompt fallback). */
+  system: string;
+  /** Assembled model messages (truncated, pruned). */
+  messages: ModelMessage[];
+  /** Merged tool set (workspace + getTools + session + MCP + client + caller). */
+  tools: ToolSet;
+  /** The language model from getModel(). */
+  model: LanguageModel;
+  /** Whether this is a continuation turn. */
+  continuation: boolean;
+  /** Custom body fields from the client request. */
+  body?: Record<string, unknown>;
+}
+
+/**
+ * Configuration returned by the `beforeTurn` hook to override defaults.
+ * All fields are optional — return only what you want to change.
+ */
+export interface TurnConfig {
+  /** Override the model for this turn (e.g. cheap model for continuations). */
+  model?: LanguageModel;
+  /** Override the assembled system prompt. */
+  system?: string;
+  /** Override the assembled messages. */
+  messages?: ModelMessage[];
+  /** Extra tools to merge (additive — spread on top of existing tools). */
+  tools?: ToolSet;
+  /** Limit which tools the model can call (AI SDK activeTools). */
+  activeTools?: string[];
+  /** Force a specific tool call (AI SDK toolChoice). */
+  toolChoice?: Parameters<typeof streamText>[0]["toolChoice"];
+  /** Override maxSteps for this turn. */
+  maxSteps?: number;
+  /** Provider-specific options (AI SDK providerOptions). */
+  providerOptions?: Record<string, unknown>;
+}
+
+/**
+ * Context passed to the `beforeToolCall` hook when the model
+ * produces a tool call, before the tool's execute function runs.
+ */
+export interface ToolCallContext {
+  /** Name of the tool being called. */
+  toolName: string;
+  /** Arguments the model provided. */
+  args: Record<string, unknown>;
+}
+
+/**
+ * Decision returned by `beforeToolCall` to control tool execution.
+ * Return void/undefined to allow execution with original args.
+ *
+ * Discriminated union — each action has a clear, non-overlapping meaning:
+ * - `allow` — execute the tool (optionally with modified args)
+ * - `block` — don't execute; return `reason` as the tool result so the model can adjust
+ * - `substitute` — don't execute; return `result` as the tool result (afterToolCall still fires)
+ */
+export type ToolCallDecision =
+  | {
+      action: "allow";
+      /** Modified arguments — tool executes with these instead of the originals. */
+      args?: Record<string, unknown>;
+    }
+  | {
+      action: "block";
+      /** Returned as the tool result so the model can adjust. */
+      reason?: string;
+    }
+  | {
+      action: "substitute";
+      /** The substitute tool result — model sees this instead of real execution. */
+      result: unknown;
+      /** Optional arg attribution for the afterToolCall log. */
+      args?: Record<string, unknown>;
+    };
+
+/**
+ * Context passed to the `afterToolCall` hook after a tool executes.
+ */
+export interface ToolCallResultContext {
+  /** Name of the tool that was called. */
+  toolName: string;
+  /** Arguments the tool was called with (may be modified by beforeToolCall). */
+  args: Record<string, unknown>;
+  /** The result returned by the tool (or substitute from beforeToolCall). */
+  result: unknown;
+}
+
+/**
+ * Context passed to the `onStepFinish` hook after each step completes.
+ * Wraps the AI SDK's onStepFinish callback data.
+ */
+export type StepContext = {
+  /** The type of step that completed. */
+  stepType: "initial" | "continue" | "tool-result";
+  /** Text generated in this step. */
+  text: string;
+  /** Tool calls made in this step. */
+  toolCalls: unknown[];
+  /** Tool results received in this step. */
+  toolResults: unknown[];
+  /** Why the step finished. */
+  finishReason: string;
+  /** Token usage for this step. */
+  usage: { inputTokens: number; outputTokens: number };
+};
+
+/**
+ * Context passed to the `onChunk` hook for each streaming chunk.
+ * Wraps the AI SDK's onChunk callback data.
+ */
+export type ChunkContext = {
+  /** The chunk data from the AI SDK stream. */
+  chunk: unknown;
+};
+
+/**
+ * Configuration for a sandboxed extension, returned by getExtensions().
+ */
+export interface ExtensionConfig {
+  /** Extension manifest (name, version, permissions, contributions). */
+  manifest: import("./extensions/types").ExtensionManifest;
+  /** JavaScript source code defining the extension's tools. */
+  source: string;
+}
 
 const TIMED_OUT = Symbol("timed-out");
 
@@ -258,9 +398,8 @@ export class Think<
   Config = Record<string, unknown>
 > extends Agent<Env> {
   /**
-   * Wait for MCP server connections to be ready before calling
-   * `onChatMessage`. When enabled, `this.mcp.getAITools()` returns
-   * the full set of MCP-discovered tools inside `onChatMessage`.
+   * Wait for MCP server connections to be ready before the inference
+   * loop. MCP tools are auto-merged into the tool set.
    *
    * Set to `true` for a default 10s timeout, or `{ timeout: ms }`
    * for a custom timeout. Defaults to `false` (no waiting).
@@ -287,8 +426,20 @@ export class Think<
   session!: Session;
 
   /**
+   * WorkerLoader binding for sandboxed extensions.
+   * Set this to enable `getExtensions()` and dynamic extension loading.
+   */
+  extensionLoader?: WorkerLoader;
+
+  /**
+   * Extension manager — created automatically when `extensionLoader` is set.
+   * Use for dynamic `load()` / `unload()` at runtime.
+   */
+  extensionManager?: import("./extensions/manager").ExtensionManager;
+
+  /**
    * Workspace filesystem backed by the DO's SQLite storage.
-   * Available in `getTools()`, `onChatMessage()`, and anywhere else.
+   * Available in `getTools()` and lifecycle hooks.
    *
    * Override to add R2 spillover for large files:
    * ```typescript
@@ -306,6 +457,7 @@ export class Think<
 
     const _onStart = this.onStart.bind(this);
     this.onStart = async () => {
+      // 1. Workspace initialization
       if (!this.workspace) {
         this.workspace = new Workspace({
           sql: this.ctx.storage.sql,
@@ -313,6 +465,7 @@ export class Think<
         });
       }
 
+      // 2. Session configuration (builder phase — context blocks, compaction, skills)
       const baseSession = Session.create(this);
       this.session = await this.configureSession(baseSession);
 
@@ -320,11 +473,18 @@ export class Think<
       // assistant_config, etc.) so that subsequent config reads work.
       this.session.getHistory();
 
+      // 3-6. Extension initialization (if extensionLoader is set)
+      if (this.extensionLoader) {
+        await this._initializeExtensions();
+      }
+
+      // 7. Protocol handlers
       this._resumableStream = new ResumableStream(this.sql.bind(this));
       this._restoreClientTools();
       this._restoreBody();
       this._setupProtocolHandlers();
 
+      // 8. User's onStart
       await _onStart();
     };
   }
@@ -334,7 +494,7 @@ export class Think<
    * Always fresh — reads from Session's tree-structured storage.
    */
   get messages(): UIMessage[] {
-    return this.session.getHistory();
+    return this.session.getHistory() as UIMessage[];
   }
 
   private _aborts = new AbortRegistry();
@@ -346,6 +506,7 @@ export class Think<
   private _continuation = new ContinuationState();
   private _continuationTimer: ReturnType<typeof setTimeout> | null = null;
   private _insideResponseHook = false;
+  private _insideInferenceLoop = false;
   private _pendingInteractionPromise: Promise<boolean> | null = null;
   private _submitSequence = 0;
   private _latestOverlappingSubmitSequence = 0;
@@ -411,17 +572,14 @@ export class Think<
     return "";
   }
 
-  // ── Override points ──────────────────────────────────────────────
+  // ── Configuration overrides ─────────────────────────────────────
 
   /**
    * Return the language model to use for inference.
-   * Must be overridden by subclasses that rely on the default
-   * `onChatMessage` implementation (the agentic loop).
+   * Must be overridden by subclasses.
    */
   getModel(): LanguageModel {
-    throw new Error(
-      "Override getModel() to return a LanguageModel, or override onChatMessage() for full control."
-    );
+    throw new Error("Override getModel() to return a LanguageModel.");
   }
 
   /**
@@ -437,20 +595,12 @@ export class Think<
     return {};
   }
 
-  /** Return the maximum number of tool-call steps per turn. */
-  getMaxSteps(): number {
-    return 10;
-  }
+  /** Maximum number of tool-call steps per turn. Override via property or per-turn via TurnConfig. */
+  maxSteps = 10;
 
   /**
    * Configure the session. Called once during `onStart`.
    * Override to add context blocks, compaction, search, skills.
-   *
-   * The base session is pre-created with `Session.create(this)`.
-   * Return it with builder methods chained.
-   *
-   * Async is supported — use it to read configuration from KV, D1,
-   * or R2 before setting up context blocks.
    *
    * @example
    * ```typescript
@@ -460,94 +610,93 @@ export class Think<
    *     .withCachedPrompt();
    * }
    * ```
-   *
-   * @example Async configuration from KV
-   * ```typescript
-   * async configureSession(session: Session) {
-   *   const config = await this.env.KV.get("agent-config", "json");
-   *   return session
-   *     .withContext("memory", { maxTokens: config.memoryTokens })
-   *     .withCachedPrompt();
-   * }
-   * ```
    */
   configureSession(session: Session): Session | Promise<Session> {
     return session;
   }
 
   /**
-   * Assemble context for the LLM from the current session state.
-   *
-   * Default implementation:
-   * 1. Freezes the system prompt from context blocks (falls back to getSystemPrompt())
-   * 2. Gets history from session
-   * 3. Applies read-time truncation (old tool outputs, long text)
-   * 4. Converts to model messages with tool call pruning
-   *
-   * Returns { system, messages } so the caller has both.
+   * Return sandboxed extension configurations. Defines load order,
+   * which determines hook execution order.
+   * Requires `extensionLoader` to be set.
    */
-  async assembleContext(): Promise<{
-    system: string;
-    messages: ModelMessage[];
-  }> {
-    // freezeSystemPrompt() triggers context block loading if needed.
-    // It returns "" when no blocks are configured or all are empty —
-    // in that case, fall back to the simple getSystemPrompt() override.
-    const frozenPrompt = await this.session.freezeSystemPrompt();
-    const system = frozenPrompt || this.getSystemPrompt();
-
-    const history = this.session.getHistory();
-    const truncated = truncateOlderMessages(history);
-    const messages = pruneMessages({
-      messages: await convertToModelMessages(truncated),
-      toolCalls: "before-last-2-messages"
-    });
-
-    return { system, messages };
+  getExtensions(): ExtensionConfig[] {
+    return [];
   }
+
+  // ── Lifecycle hooks ───────────────────────────────────────────
 
   /**
-   * Handle a chat turn and return the streaming result.
+   * Called before `streamText` — inspect the assembled context and
+   * return overrides. Think assembles tools, system prompt, and messages
+   * internally; this hook sees the result and can override any part.
    *
-   * The default implementation runs the agentic loop:
-   * 1. Merge tools: workspace + getTools() + clientTools + session context tools + options.tools
-   * 2. Assemble context (system prompt + messages) from session state
-   * 3. Call `streamText` with the model, system prompt, tools, and step limit
+   * Return `void` to accept all defaults.
    *
-   * Override for full control over inference.
+   * @example Switch model for continuations
+   * ```typescript
+   * beforeTurn(ctx: TurnContext) {
+   *   if (ctx.continuation) return { model: this.cheapModel };
+   * }
+   * ```
    *
-   * @returns A result with `toUIMessageStream()` — AI SDK's `streamText()`
-   *          return value satisfies this interface.
+   * @example Restrict active tools
+   * ```typescript
+   * beforeTurn(ctx: TurnContext) {
+   *   return { activeTools: ["read", "write"] };
+   * }
+   * ```
    */
-  async onChatMessage(options?: ChatMessageOptions): Promise<StreamableResult> {
-    const workspaceTools = createWorkspaceTools(this.workspace);
-    const baseTools = this.getTools();
-    const clientToolSet = createToolsFromClientSchemas(options?.clientTools);
-    const contextTools = await this.session.tools();
-    const tools = {
-      ...workspaceTools,
-      ...baseTools,
-      ...clientToolSet,
-      ...contextTools,
-      ...options?.tools
-    };
+  beforeTurn(
+    _ctx: TurnContext
+  ): TurnConfig | void | Promise<TurnConfig | void> {}
 
-    const { system, messages } = await this.assembleContext();
-    if (messages.length === 0) {
-      throw new Error(
-        "No messages to send to the model. This usually means the chat request " +
-          "arrived before any messages were persisted."
-      );
-    }
-    return streamText({
-      model: this.getModel(),
-      system,
-      messages,
-      tools,
-      stopWhen: stepCountIs(this.getMaxSteps()),
-      abortSignal: options?.signal
-    });
-  }
+  /**
+   * Called when the model produces a tool call. Currently fires
+   * **after** tool execution (via `onStepFinish` data) — observation only.
+   *
+   * **Known limitation:** `block` and `substitute` actions in the returned
+   * `ToolCallDecision` are not yet functional. The AI SDK's `streamText`
+   * does not expose a pre-execution interception point for tool calls
+   * in the Workers runtime. The types are in place for when this becomes
+   * possible (see plan: "Known limitations — Phase 1").
+   *
+   * Only fires for server-side tools (tools with `execute`).
+   * Client tools are handled on the client — Think can't intercept them.
+   *
+   * Return `void` to accept default behavior.
+   *
+   * @example Log tool calls
+   * ```typescript
+   * beforeToolCall(ctx: ToolCallContext) {
+   *   console.log(`Tool called: ${ctx.toolName}`, ctx.args);
+   * }
+   * ```
+   */
+  beforeToolCall(
+    _ctx: ToolCallContext
+  ): ToolCallDecision | void | Promise<ToolCallDecision | void> {}
+
+  /**
+   * Called after a tool executes (or a substitute result is provided).
+   * Does NOT fire when `beforeToolCall` blocks with no substitute result.
+   *
+   * Override for logging, metrics, or result inspection.
+   */
+  afterToolCall(_ctx: ToolCallResultContext): void | Promise<void> {}
+
+  /**
+   * Called after each step completes (initial, continue, tool-result).
+   * Override for step-level logging or analytics.
+   */
+  onStepFinish(_ctx: StepContext): void | Promise<void> {}
+
+  /**
+   * Called for each streaming chunk. High-frequency — fires per token.
+   * Override for streaming analytics, progress indicators, or token counting.
+   * Observational only (void return).
+   */
+  onChunk(_ctx: ChunkContext): void | Promise<void> {}
 
   /**
    * Called after a chat turn completes and the assistant message has been
@@ -567,6 +716,402 @@ export class Think<
    */
   onChatError(error: unknown): unknown {
     return error;
+  }
+
+  // ── Extension initialization ───────────────────────────────────
+
+  private async _initializeExtensions(): Promise<void> {
+    const { ExtensionManager } = await import("./extensions/manager");
+    const { sanitizeName } = await import("./extensions/manager");
+
+    // 3. Create ExtensionManager with host binding if HostBridgeLoopback
+    // is re-exported from the worker entry point.
+    const agentClassName = this.constructor.name;
+    const agentId = this.ctx.id.toString();
+    const ctxExports = (this.ctx as unknown as Record<string, unknown>)
+      .exports as Record<string, unknown> | undefined;
+    const hasBridge =
+      ctxExports && typeof ctxExports.HostBridgeLoopback === "function";
+
+    this.extensionManager = new ExtensionManager({
+      loader: this.extensionLoader!,
+      storage: this.ctx.storage,
+      ...(hasBridge
+        ? {
+            createHostBinding: (
+              permissions: import("./extensions/types").ExtensionPermissions,
+              ownContextLabels: string[]
+            ) =>
+              (
+                ctxExports.HostBridgeLoopback as (opts: {
+                  props: Record<string, unknown>;
+                }) => Fetcher
+              )({
+                props: {
+                  agentClassName,
+                  agentId,
+                  permissions,
+                  ownContextLabels
+                }
+              })
+          }
+        : {})
+    });
+
+    // 4. Load static extensions from getExtensions()
+    const configs = this.getExtensions();
+    for (const config of configs) {
+      await this.extensionManager.load(config.manifest, config.source);
+    }
+
+    // 5. Restore dynamic extensions from DO storage
+    await this.extensionManager.restore();
+
+    // 6. Register extension context blocks in Session (mutation phase).
+    // Context blocks use SQLite-backed AgentContextProvider (no bridge
+    // delegation to the extension Worker). Extensions write to their
+    // blocks via host.setContext() (Phase 3). Bridge providers that
+    // delegate to extension Worker RPC methods are Phase 4.
+    for (const ext of this.extensionManager.list()) {
+      const manifest = this.extensionManager.getManifest(ext.name);
+      if (!manifest?.context) continue;
+
+      const prefix = sanitizeName(ext.name);
+      for (const ctxDef of manifest.context) {
+        const namespacedLabel = `${prefix}_${ctxDef.label}`;
+        await this.session.addContext(namespacedLabel, {
+          description: ctxDef.description,
+          maxTokens: ctxDef.maxTokens
+        });
+      }
+    }
+
+    // Wire unload callback to clean up context blocks
+    this.extensionManager.onUnload(async (_name, contextLabels) => {
+      for (const label of contextLabels) {
+        this.session.removeContext(label);
+      }
+      await this.session.refreshSystemPrompt();
+    });
+  }
+
+  // ── Inference loop (Think owns this) ──────────────────────────
+
+  /**
+   * The single convergence point for all chat turn entry paths.
+   * Merges tools, assembles context, fires lifecycle hooks, wraps tools
+   * for interception, and calls streamText.
+   */
+  private async _runInferenceLoop(input: TurnInput): Promise<StreamableResult> {
+    if (this.waitForMcpConnections) {
+      const timeout =
+        typeof this.waitForMcpConnections === "object"
+          ? this.waitForMcpConnections.timeout
+          : 10_000;
+      await this.mcp.waitForConnections({ timeout });
+    }
+
+    const workspaceTools = createWorkspaceTools(this.workspace);
+    const baseTools = this.getTools();
+    const extensionTools = this.extensionManager?.getTools() ?? {};
+    const contextTools = await this.session.tools();
+    const clientToolSet = createToolsFromClientSchemas(input.clientTools);
+    const tools: ToolSet = {
+      ...workspaceTools,
+      ...baseTools,
+      ...extensionTools,
+      ...contextTools,
+      ...(this.mcp?.getAITools?.() ?? {}),
+      ...clientToolSet,
+      ...input.callerTools
+    };
+
+    const frozenPrompt = await this.session.freezeSystemPrompt();
+    const system = frozenPrompt || this.getSystemPrompt();
+
+    const history = this.session.getHistory();
+    const truncated = truncateOlderMessages(history) as UIMessage[];
+    const messages = pruneMessages({
+      messages: await convertToModelMessages(truncated),
+      toolCalls: "before-last-2-messages"
+    });
+
+    if (messages.length === 0) {
+      throw new Error(
+        "No messages to send to the model. This usually means the chat request " +
+          "arrived before any messages were persisted."
+      );
+    }
+
+    const model = this.getModel();
+    const ctx: TurnContext = {
+      system,
+      messages,
+      tools,
+      model,
+      continuation: input.continuation,
+      body: input.body
+    };
+
+    const subclassConfig = (await this.beforeTurn(ctx)) ?? {};
+    const config = await this._pipelineExtensionBeforeTurn(ctx, subclassConfig);
+
+    const finalModel = config.model ?? model;
+    const finalSystem = config.system ?? system;
+    const finalMessages = config.messages ?? messages;
+    const finalTools: ToolSet = config.tools
+      ? { ...tools, ...config.tools }
+      : tools;
+    const finalMaxSteps = config.maxSteps ?? this.maxSteps;
+
+    const result = streamText({
+      model: finalModel,
+      system: finalSystem,
+      messages: finalMessages,
+      tools: finalTools,
+      activeTools: config.activeTools,
+      toolChoice: config.toolChoice,
+      stopWhen: stepCountIs(finalMaxSteps),
+      providerOptions: config.providerOptions as
+        | Parameters<typeof streamText>[0]["providerOptions"]
+        | undefined,
+      abortSignal: input.signal,
+      onChunk: async (event: Record<string, unknown>) => {
+        await this.onChunk({ chunk: event.chunk });
+      },
+      onStepFinish: async (event: Record<string, unknown>) => {
+        const toolCalls = (event.toolCalls ?? []) as Array<
+          Record<string, unknown>
+        >;
+        const toolResults = (event.toolResults ?? []) as Array<
+          Record<string, unknown>
+        >;
+
+        for (let i = 0; i < toolCalls.length; i++) {
+          const tc = toolCalls[i];
+          if (tc) {
+            await this.beforeToolCall({
+              toolName: (tc.toolName ?? tc.name ?? "") as string,
+              args: (tc.args ?? {}) as Record<string, unknown>
+            });
+          }
+        }
+
+        for (let i = 0; i < toolResults.length; i++) {
+          const tr = toolResults[i];
+          const tc = toolCalls[i];
+          if (tr) {
+            await this.afterToolCall({
+              toolName: (tc?.toolName ??
+                tc?.name ??
+                tr?.toolName ??
+                "") as string,
+              args: (tc?.args ?? {}) as Record<string, unknown>,
+              result: tr.result
+            });
+          }
+        }
+
+        await this.onStepFinish({
+          stepType: (event.stepType ?? "initial") as StepContext["stepType"],
+          text: (event.text ?? "") as string,
+          toolCalls,
+          toolResults,
+          finishReason: (event.finishReason ?? "stop") as string,
+          usage: {
+            inputTokens:
+              ((event.usage as Record<string, unknown>)
+                ?.inputTokens as number) ?? 0,
+            outputTokens:
+              ((event.usage as Record<string, unknown>)
+                ?.outputTokens as number) ?? 0
+          }
+        });
+      }
+    });
+
+    return this._transformInferenceResult(result);
+  }
+
+  /** @internal Test seam — override in test agents to wrap the stream (e.g. error injection). */
+  protected _transformInferenceResult(
+    result: StreamableResult
+  ): StreamableResult {
+    return result;
+  }
+
+  /** Default hook timeout in milliseconds. */
+  hookTimeout = 5000;
+
+  /**
+   * Pipeline beforeTurn through sandboxed extensions in load order.
+   * Each extension sees the accumulated state from prior extensions
+   * (snapshot is rebuilt after each extension's modifications).
+   * Results are merged with last-write-wins for scalar fields.
+   * Extensions that don't subscribe to beforeTurn are skipped.
+   */
+  private async _pipelineExtensionBeforeTurn(
+    ctx: TurnContext,
+    subclassConfig: TurnConfig
+  ): Promise<TurnConfig> {
+    if (!this.extensionManager) return subclassConfig;
+
+    const subscribers = this.extensionManager.getHookSubscribers("beforeTurn");
+    if (subscribers.length === 0) return subclassConfig;
+
+    const { createTurnContextSnapshot, parseHookResult } =
+      await import("./extensions/hook-proxy");
+
+    let snapshot = createTurnContextSnapshot(ctx);
+    let accumulated = { ...subclassConfig };
+
+    // Apply subclass config to the initial snapshot so extensions
+    // see the subclass overrides
+    if (accumulated.system !== undefined) snapshot.system = accumulated.system;
+    if (accumulated.maxSteps !== undefined)
+      snapshot.messageCount = ctx.messages.length;
+
+    for (const sub of subscribers) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const resultJson = await Promise.race([
+          sub.entrypoint.hook("beforeTurn", snapshot),
+          new Promise<string>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`Hook timeout: ${sub.name}`)),
+              this.hookTimeout
+            );
+          })
+        ]);
+
+        const parsed = parseHookResult(resultJson);
+        if ("config" in parsed) {
+          // Merge serializable scalars only. model and tools are skipped —
+          // sandboxed extensions can't return LanguageModel or AI SDK Tool
+          // objects (not serializable across RPC). Use activeTools to
+          // control which tools the model can call.
+          if (parsed.config.system !== undefined)
+            accumulated.system = parsed.config.system;
+          if (parsed.config.messages !== undefined)
+            accumulated.messages = parsed.config.messages;
+          if (parsed.config.activeTools !== undefined)
+            accumulated.activeTools = parsed.config.activeTools;
+          if (parsed.config.toolChoice !== undefined)
+            accumulated.toolChoice = parsed.config.toolChoice;
+          if (parsed.config.maxSteps !== undefined)
+            accumulated.maxSteps = parsed.config.maxSteps;
+          if (parsed.config.providerOptions !== undefined) {
+            accumulated.providerOptions = {
+              ...(accumulated.providerOptions ?? {}),
+              ...parsed.config.providerOptions
+            };
+          }
+          // Update snapshot so next extension sees this extension's changes
+          if (accumulated.system !== undefined)
+            snapshot = { ...snapshot, system: accumulated.system };
+          if (accumulated.activeTools !== undefined)
+            snapshot = { ...snapshot, toolNames: accumulated.activeTools };
+        } else if ("error" in parsed) {
+          console.warn(
+            `[Think] Extension "${sub.name}" beforeTurn error:`,
+            parsed.error
+          );
+        }
+      } catch (err) {
+        console.warn(
+          `[Think] Extension "${sub.name}" beforeTurn failed:`,
+          err instanceof Error ? err.message : err
+        );
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    }
+
+    return accumulated;
+  }
+
+  // ── Host bridge methods (called by HostBridgeLoopback via DO RPC) ──
+
+  async _hostReadFile(path: string): Promise<string | null> {
+    return (await this.workspace.readFile(path)) ?? null;
+  }
+
+  async _hostWriteFile(path: string, content: string): Promise<void> {
+    await this.workspace.writeFile(path, content);
+  }
+
+  async _hostDeleteFile(path: string): Promise<boolean> {
+    try {
+      await this.workspace.rm(path);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async _hostListFiles(
+    dir: string
+  ): Promise<
+    Array<{ name: string; type: string; size: number; path: string }>
+  > {
+    const entries = await this.workspace.readDir(dir);
+    return entries.map((e) => ({
+      name: e.name,
+      type: e.type,
+      size: e.size ?? 0,
+      path: e.path ?? `${dir}/${e.name}`
+    }));
+  }
+
+  async _hostGetContext(label: string): Promise<string | null> {
+    const block = this.session.getContextBlock(label);
+    return block?.content ?? null;
+  }
+
+  async _hostSetContext(label: string, content: string): Promise<void> {
+    await this.session.replaceContextBlock(label, content);
+  }
+
+  async _hostGetMessages(
+    limit?: number
+  ): Promise<Array<{ id: string; role: string; content: string }>> {
+    const history = this.session.getHistory();
+    const sliced =
+      limit !== undefined && limit !== null
+        ? limit <= 0
+          ? []
+          : history.slice(-limit)
+        : history;
+    return sliced.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.parts
+        .filter((p): p is { type: "text"; text: string } => p.type === "text")
+        .map((p) => p.text)
+        .join("")
+    }));
+  }
+
+  async _hostSendMessage(content: string): Promise<void> {
+    const msg = {
+      id: crypto.randomUUID(),
+      role: "user" as const,
+      parts: [{ type: "text" as const, text: content }]
+    };
+    // Append directly to session — do NOT route through saveMessages,
+    // which enqueues a full turn via TurnQueue and would deadlock if
+    // called during an active turn (tool execution → host.sendMessage
+    // → saveMessages → TurnQueue.enqueue → awaits current turn → deadlock).
+    // The injected message is visible in the next turn's history.
+    await this.session.appendMessage(msg);
+  }
+
+  async _hostGetSessionInfo(): Promise<{
+    messageCount: number;
+  }> {
+    return {
+      messageCount: this.session.getHistory().length
+    };
   }
 
   // ── Sub-agent RPC entry point ───────────────────────────────────
@@ -604,20 +1149,34 @@ export class Think<
       });
 
       try {
-        const result = await this.onChatMessage({
-          signal: options?.signal,
-          tools: options?.tools,
-          continuation: false
-        });
+        const result = await agentContext.run(
+          {
+            agent: this,
+            connection: undefined,
+            request: undefined,
+            email: undefined
+          },
+          () =>
+            this._runInferenceLoop({
+              signal: options?.signal,
+              callerTools: options?.tools,
+              continuation: false
+            })
+        );
 
+        this._insideInferenceLoop = true;
         let aborted = false;
-        for await (const chunk of result.toUIMessageStream()) {
-          if (options?.signal?.aborted) {
-            aborted = true;
-            break;
+        try {
+          for await (const chunk of result.toUIMessageStream()) {
+            if (options?.signal?.aborted) {
+              aborted = true;
+              break;
+            }
+            accumulator.applyChunk(chunk as unknown as StreamChunkData);
+            await callback.onEvent(JSON.stringify(chunk));
           }
-          accumulator.applyChunk(chunk as unknown as StreamChunkData);
-          await callback.onEvent(JSON.stringify(chunk));
+        } finally {
+          this._insideInferenceLoop = false;
         }
 
         const assistantMsg = accumulator.toMessage();
@@ -756,7 +1315,7 @@ export class Think<
                 email: undefined
               },
               () =>
-                this.onChatMessage({
+                this._runInferenceLoop({
                   signal: abortSignal,
                   clientTools,
                   body,
@@ -838,7 +1397,7 @@ export class Think<
                 email: undefined
               },
               () =>
-                this.onChatMessage({
+                this._runInferenceLoop({
                   signal: abortSignal,
                   clientTools,
                   body: resolvedBody,
@@ -874,18 +1433,6 @@ export class Think<
     }
 
     return { requestId, status };
-  }
-
-  /**
-   * Override to apply custom transformations to messages before they are
-   * persisted to Session storage. Runs after the built-in sanitization
-   * (OpenAI metadata stripping, row size enforcement) but before
-   * `session.appendMessage` / `session.updateMessage`.
-   *
-   * Use for redacting PII, stripping internal metadata, or custom compaction.
-   */
-  protected sanitizeMessageForPersistence(message: UIMessage): UIMessage {
-    return message;
   }
 
   // ── WebSocket protocol ──────────────────────────────────────────
@@ -1181,14 +1728,6 @@ export class Think<
             }
 
             const chatTurnBody = async () => {
-              if (this.waitForMcpConnections) {
-                const timeout =
-                  typeof this.waitForMcpConnections === "object"
-                    ? this.waitForMcpConnections.timeout
-                    : 10_000;
-                await this.mcp.waitForConnections({ timeout });
-              }
-
               const result = await agentContext.run(
                 {
                   agent: this,
@@ -1197,7 +1736,7 @@ export class Think<
                   email: undefined
                 },
                 () =>
-                  this.onChatMessage({
+                  this._runInferenceLoop({
                     signal: abortSignal,
                     clientTools: clientToolsForTurn,
                     body: bodyForTurn,
@@ -1318,35 +1857,40 @@ export class Think<
     let streamError: string | undefined;
 
     try {
-      for await (const chunk of result.toUIMessageStream()) {
-        if (abortSignal?.aborted) {
-          streamAborted = true;
-          break;
-        }
+      this._insideInferenceLoop = true;
+      try {
+        for await (const chunk of result.toUIMessageStream()) {
+          if (abortSignal?.aborted) {
+            streamAborted = true;
+            break;
+          }
 
-        const { action } = accumulator.applyChunk(
-          chunk as unknown as StreamChunkData
-        );
+          const { action } = accumulator.applyChunk(
+            chunk as unknown as StreamChunkData
+          );
 
-        if (action?.type === "error") {
+          if (action?.type === "error") {
+            this._broadcastChat({
+              type: MSG_CHAT_RESPONSE,
+              id: requestId,
+              body: action.error,
+              done: false,
+              error: true
+            });
+            continue;
+          }
+
+          const chunkBody = JSON.stringify(chunk);
+          this._resumableStream.storeChunk(streamId, chunkBody);
           this._broadcastChat({
             type: MSG_CHAT_RESPONSE,
             id: requestId,
-            body: action.error,
-            done: false,
-            error: true
+            body: chunkBody,
+            done: false
           });
-          continue;
         }
-
-        const chunkBody = JSON.stringify(chunk);
-        this._resumableStream.storeChunk(streamId, chunkBody);
-        this._broadcastChat({
-          type: MSG_CHAT_RESPONSE,
-          id: requestId,
-          body: chunkBody,
-          done: false
-        });
+      } finally {
+        this._insideInferenceLoop = false;
       }
 
       this._resumableStream.complete(streamId);
@@ -1415,8 +1959,7 @@ export class Think<
 
   private _persistAssistantMessage(msg: UIMessage, parentId?: string): void {
     const sanitized = sanitizeMessage(msg);
-    const sized = enforceRowSizeLimit(sanitized);
-    const safe = this.sanitizeMessageForPersistence(sized);
+    const safe = enforceRowSizeLimit(sanitized);
 
     const existing = this.session.getMessage(safe.id);
     if (existing) {
@@ -1908,7 +2451,7 @@ export class Think<
                 email: undefined
               },
               () =>
-                this.onChatMessage({
+                this._runInferenceLoop({
                   signal: abortSignal,
                   clientTools,
                   body: this._lastBody,

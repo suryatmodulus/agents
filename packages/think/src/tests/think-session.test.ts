@@ -9,7 +9,6 @@ import type {
   ThinkConfigTestAgent,
   ThinkProgrammaticTestAgent,
   ThinkAsyncHookTestAgent,
-  ThinkSanitizeTestAgent,
   ThinkRecoveryTestAgent,
   ThinkNonRecoveryTestAgent
 } from "./agents/think-session";
@@ -46,13 +45,6 @@ async function freshAsyncHookAgent(name: string) {
 async function freshProgrammaticAgent(name: string) {
   return getServerByName(
     env.ThinkProgrammaticTestAgent as unknown as DurableObjectNamespace<ThinkProgrammaticTestAgent>,
-    name
-  );
-}
-
-async function freshSanitizeAgent(name: string) {
-  return getServerByName(
-    env.ThinkSanitizeTestAgent as unknown as DurableObjectNamespace<ThinkSanitizeTestAgent>,
     name
   );
 }
@@ -435,13 +427,13 @@ describe("Think — context blocks", () => {
     expect(content).toBe("Fact 1: User likes cats.");
   });
 
-  it("should use context blocks in assembleContext even when called directly", async () => {
+  it("should use context blocks in system prompt assembly even when called directly", async () => {
     const agent = await freshSessionAgent("ctx-assemble-direct");
 
     await agent.setContextBlock("memory", "User prefers Rust over Go.");
 
-    // Call assembleContext directly — without session.tools() being called first.
-    // This verifies that assembleContext triggers context block loading on its own.
+    // Call getAssembledSystemPrompt directly — without session.tools() being called first.
+    // This verifies that freezeSystemPrompt triggers context block loading on its own.
     const systemPrompt = await agent.getAssembledSystemPrompt();
 
     expect(systemPrompt).toContain("MEMORY");
@@ -452,7 +444,7 @@ describe("Think — context blocks", () => {
     const agent = await freshSessionAgent("ctx-fallback");
 
     // Don't write any content to the memory block — it starts empty.
-    // assembleContext should fall back to getSystemPrompt().
+    // System prompt assembly should fall back to getSystemPrompt().
     const systemPrompt = await agent.getAssembledSystemPrompt();
 
     // Default getSystemPrompt() returns "You are a helpful assistant."
@@ -857,7 +849,7 @@ describe("Think — continueLastTurn", () => {
     expect(result.requestId).toBe("");
   });
 
-  it("should set continuation: true on ChatMessageOptions", async () => {
+  it("should set continuation: true on continueLastTurn", async () => {
     const agent = await freshProgrammaticAgent("continue-flag");
 
     await agent.testChat("Start");
@@ -895,48 +887,6 @@ describe("Think — continueLastTurn", () => {
     }>;
     const lastOption = options[options.length - 1];
     expect(lastOption.body).toEqual({ model: "fast" });
-  });
-});
-
-// ── sanitizeMessageForPersistence ────────────────────────────────
-
-describe("Think — sanitizeMessageForPersistence", () => {
-  it("should redact SECRET from persisted messages", async () => {
-    const agent = await freshSanitizeAgent("sanitize-redact");
-
-    await agent.testChat("Tell me the password");
-
-    const messages = (await agent.getStoredMessages()) as UIMessage[];
-    expect(messages).toHaveLength(2);
-
-    const assistant = messages[1] as {
-      role: string;
-      parts: Array<{ type: string; text?: string }>;
-    };
-    expect(assistant.role).toBe("assistant");
-    const textParts = assistant.parts.filter((p) => p.type === "text");
-    expect(textParts.length).toBeGreaterThan(0);
-
-    for (const part of textParts) {
-      expect(part.text).not.toContain("SECRET");
-      expect(part.text).toContain("[REDACTED]");
-    }
-  });
-
-  it("should not affect user messages", async () => {
-    const agent = await freshSanitizeAgent("sanitize-user");
-
-    await agent.testChat("Tell me a SECRET");
-
-    const messages = (await agent.getStoredMessages()) as UIMessage[];
-    const userMsg = messages[0] as {
-      parts: Array<{ type: string; text?: string }>;
-    };
-    const userText = userMsg.parts
-      .filter((p) => p.type === "text")
-      .map((p) => p.text)
-      .join("");
-    expect(userText).toContain("SECRET");
   });
 });
 
@@ -993,7 +943,7 @@ describe("Think — unstable_chatRecovery", () => {
     const fibers = await agent.getActiveFibers();
     expect(fibers).toHaveLength(0);
 
-    expect(await agent.getOnChatMessageCallCount()).toBe(1);
+    expect(await agent.getTurnCallCount()).toBe(1);
   });
 
   it("recovery=false works without creating fiber rows", async () => {
@@ -1067,7 +1017,7 @@ describe("Think — unstable_chatRecovery", () => {
     const fibers = await agent.getActiveFibers();
     expect(fibers).toHaveLength(0);
 
-    expect(await agent.getOnChatMessageCallCount()).toBe(2);
+    expect(await agent.getTurnCallCount()).toBe(2);
   });
 });
 
@@ -1166,7 +1116,7 @@ describe("Think — onChatRecovery", () => {
 
     await agent.triggerFiberRecovery();
 
-    expect(await agent.getOnChatMessageCallCount()).toBe(0);
+    expect(await agent.getTurnCallCount()).toBe(0);
   });
 
   it("{ persist: false, continue: false } skips both", async () => {
@@ -1194,7 +1144,7 @@ describe("Think — onChatRecovery", () => {
 
     const messages = (await agent.getStoredMessages()) as UIMessage[];
     expect(messages).toHaveLength(0);
-    expect(await agent.getOnChatMessageCallCount()).toBe(0);
+    expect(await agent.getTurnCallCount()).toBe(0);
   });
 });
 

@@ -7,11 +7,11 @@
  */
 
 /**
- * Manifest declaring an extension's identity and permissions.
+ * Manifest declaring an extension's identity, permissions, and contributions.
  * Passed to ExtensionManager.load() alongside the extension source.
  */
 export interface ExtensionManifest {
-  /** Unique name for this extension (used as namespace prefix for tools). */
+  /** Unique name for this extension (used as namespace prefix for tools and context). */
   name: string;
   /** Semver version string. */
   version: string;
@@ -19,6 +19,37 @@ export interface ExtensionManifest {
   description?: string;
   /** Permission declarations — controls what the extension can access. */
   permissions?: ExtensionPermissions;
+
+  /**
+   * Context blocks contributed by this extension.
+   * Labels are namespaced as `{extName}_{label}` at registration.
+   * Currently backed by SQLite storage — extensions write via
+   * `host.setContext()`. Direct RPC delegation is planned for Phase 4.
+   */
+  context?: Array<{
+    /** Block label (namespaced as {extName}_{label}). */
+    label: string;
+    /** Human-readable description shown in the system prompt header. */
+    description?: string;
+    /** Block type determines which tools are generated.
+     * Note: not yet enforced — all blocks use SQLite-backed storage
+     * until bridge providers are implemented (Phase 4). */
+    type: "readonly" | "writable" | "skill" | "searchable";
+    /** Maximum token budget for this block. */
+    maxTokens?: number;
+  }>;
+
+  /**
+   * Lifecycle hooks this extension provides handlers for.
+   * The extension Worker must expose corresponding RPC methods.
+   */
+  hooks?: Array<
+    | "beforeTurn"
+    | "beforeToolCall"
+    | "afterToolCall"
+    | "onStepFinish"
+    | "onChunk"
+  >;
 }
 
 export interface ExtensionPermissions {
@@ -40,6 +71,33 @@ export interface ExtensionPermissions {
    * - "read-write": can read, write, and delete files
    */
   workspace?: "read" | "read-write" | "none";
+
+  /**
+   * Context block access.
+   * - `read`: which labels the extension can read ("all" or specific list)
+   * - `write`: which labels the extension can write ("own" = only its manifest-declared labels, or specific list)
+   */
+  context?: {
+    read?: string[] | "all";
+    write?: string[] | "own";
+  };
+
+  /**
+   * Message history access.
+   * - "none" (default): no access
+   * - "read": can read conversation history
+   */
+  messages?: "none" | "read";
+
+  /**
+   * Session-level capabilities.
+   * - `sendMessage`: can inject user messages (queued when inside inference loop)
+   * - `metadata`: can read session metadata (message count, etc.)
+   */
+  session?: {
+    sendMessage?: boolean;
+    metadata?: boolean;
+  };
 }
 
 /**
@@ -65,5 +123,7 @@ export interface ExtensionInfo {
   description?: string;
   /** Names of tools provided by this extension. */
   tools: string[];
+  /** Namespaced context labels contributed by this extension. */
+  contextLabels: string[];
   permissions: ExtensionPermissions;
 }

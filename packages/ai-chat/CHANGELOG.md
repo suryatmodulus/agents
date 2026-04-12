@@ -1,5 +1,19 @@
 # @cloudflare/ai-chat
 
+## 0.4.2
+
+### Patch Changes
+
+- [#1290](https://github.com/cloudflare/agents/pull/1290) [`6429189`](https://github.com/cloudflare/agents/commit/6429189ca284d4d00b71d493387c757257ea6778) Thanks [@threepointone](https://github.com/threepointone)! - Remove false-positive "Stream was still active when cancel was received" warning that fired on every cancellation, even when the user correctly passed `abortSignal` to `streamText()`
+
+## 0.4.1
+
+### Patch Changes
+
+- [#1277](https://github.com/cloudflare/agents/pull/1277) [`0cd0487`](https://github.com/cloudflare/agents/commit/0cd0487ca6b6bd684c72d59a8349994fe82750a1) Thanks [@zebp](https://github.com/zebp)! - Fix race condition in `messageConcurrency` where rapid overlapping submits could bypass the `latest`/`merge`/`debounce` strategy. The concurrency decision checked `queuedCount()` before the turn was enqueued, but an intervening `await persistMessages()` allowed a second message handler to see a stale count of zero and skip supersede checks. A pending-enqueue counter now bridges this gap so overlapping submits are always detected.
+
+- [#1272](https://github.com/cloudflare/agents/pull/1272) [`22da9b1`](https://github.com/cloudflare/agents/commit/22da9b19743ad643d6dbd0ca61b1ff9064fbbd76) Thanks [@threepointone](https://github.com/threepointone)! - Widen `useAgentChat` agent prop type to accept both typed and untyped `useAgent` connections. Previously, `useAgent<MyAgent>()` results could not be passed to `useAgentChat` due to incompatible `call` types. The agent prop now uses a structural type matching only the fields `useAgentChat` actually uses.
+
 ## 0.4.0
 
 ### Minor Changes

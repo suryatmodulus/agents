@@ -3,9 +3,8 @@
  */
 
 import type { ToolSet } from "ai";
-import type { UIMessage } from "ai";
 import type { SessionProvider, StoredCompaction } from "./provider";
-import type { SessionOptions } from "./types";
+import type { SessionMessage, SessionOptions } from "./types";
 import {
   ContextBlocks,
   type ContextBlock,
@@ -51,7 +50,7 @@ export class Session {
   private _pending?: PendingContext[];
   private _cachedPrompt?: WritableContextProvider | true;
   private _compactionFn?:
-    | ((messages: UIMessage[]) => Promise<CompactResult | null>)
+    | ((messages: SessionMessage[]) => Promise<CompactResult | null>)
     | null;
   private _tokenThreshold?: number;
   private _ready = false;
@@ -117,7 +116,7 @@ export class Session {
    * message history into a summary overlay.
    */
   onCompaction(
-    fn: (messages: UIMessage[]) => Promise<CompactResult | null>
+    fn: (messages: SessionMessage[]) => Promise<CompactResult | null>
   ): this {
     this._compactionFn = fn;
     return this;
@@ -187,15 +186,18 @@ export class Session {
     for (const msg of history) {
       if (msg.role !== "assistant") continue;
       for (const part of msg.parts) {
-        const p = part as Record<string, unknown>;
-        if (p.toolName === "load_context" && p.state === "output-available") {
-          const input = p.input as { label?: string; key?: string } | undefined;
+        if (
+          part.toolName === "load_context" &&
+          part.state === "output-available"
+        ) {
+          const input = part.input as
+            | { label?: string; key?: string }
+            | undefined;
           if (input?.label && input?.key) {
             const id = `${input.label}:${input.key}`;
-            const output = p.output;
             if (
-              typeof output === "string" &&
-              output.startsWith("[skill unloaded:")
+              typeof part.output === "string" &&
+              part.output.startsWith("[skill unloaded:")
             ) {
               loaded.delete(id);
             } else {
@@ -203,10 +205,12 @@ export class Session {
             }
           }
         } else if (
-          p.toolName === "unload_context" &&
-          p.state === "output-available"
+          part.toolName === "unload_context" &&
+          part.state === "output-available"
         ) {
-          const input = p.input as { label?: string; key?: string } | undefined;
+          const input = part.input as
+            | { label?: string; key?: string }
+            | undefined;
           if (input?.label && input?.key) {
             loaded.delete(`${input.label}:${input.key}`);
           }
@@ -231,12 +235,16 @@ export class Session {
 
       let changed = false;
       const newParts = msg.parts.map((part) => {
-        const p = part as Record<string, unknown>;
-        if (p.toolName === "load_context" && p.state === "output-available") {
-          const input = p.input as { label?: string; key?: string } | undefined;
+        if (
+          part.toolName === "load_context" &&
+          part.state === "output-available"
+        ) {
+          const input = part.input as
+            | { label?: string; key?: string }
+            | undefined;
           if (input?.label === label && input?.key === key) {
             changed = true;
-            return { ...p, output: `[skill unloaded: ${key}]` };
+            return { ...part, output: `[skill unloaded: ${key}]` };
           }
         }
         return part;
@@ -245,7 +253,7 @@ export class Session {
       if (changed) {
         this.storage.updateMessage({
           ...msg,
-          parts: newParts as UIMessage["parts"]
+          parts: newParts as SessionMessage["parts"]
         });
         return;
       }
@@ -254,22 +262,22 @@ export class Session {
 
   // ── History (tree-structured) ─────────────────────────────────
 
-  getHistory(leafId?: string | null): UIMessage[] {
+  getHistory(leafId?: string | null): SessionMessage[] {
     this._ensureReady();
     return this.storage.getHistory(leafId);
   }
 
-  getMessage(id: string): UIMessage | null {
+  getMessage(id: string): SessionMessage | null {
     this._ensureReady();
     return this.storage.getMessage(id);
   }
 
-  getLatestLeaf(): UIMessage | null {
+  getLatestLeaf(): SessionMessage | null {
     this._ensureReady();
     return this.storage.getLatestLeaf();
   }
 
-  getBranches(messageId: string): UIMessage[] {
+  getBranches(messageId: string): SessionMessage[] {
     this._ensureReady();
     return this.storage.getBranches(messageId);
   }
@@ -307,7 +315,7 @@ export class Session {
   // ── Write ─────────────────────────────────────────────────────
 
   async appendMessage(
-    message: UIMessage,
+    message: SessionMessage,
     parentId?: string | null
   ): Promise<void> {
     this._ensureReady();
@@ -328,7 +336,7 @@ export class Session {
     }
   }
 
-  updateMessage(message: UIMessage): void {
+  updateMessage(message: SessionMessage): void {
     this._ensureReady();
     this.storage.updateMessage(message);
     this._emitStatus("idle");
@@ -438,6 +446,50 @@ export class Session {
   ): Promise<ContextBlock> {
     this._ensureReady();
     return this.context.appendToBlock(label, content);
+  }
+
+  /**
+   * Dynamically register a new context block after session initialization.
+   * Used by extensions to contribute context blocks at runtime.
+   *
+   * The block's provider is initialized and loaded immediately.
+   * Call `refreshSystemPrompt()` afterward to include the new block
+   * in the system prompt.
+   *
+   * Note: When called without a provider, auto-wires to SQLite via
+   * AgentContextProvider. Requires the session to have been created
+   * via `Session.create(agent)` (not the direct constructor).
+   */
+  async addContext(
+    label: string,
+    options?: SessionContextOptions
+  ): Promise<ContextBlock> {
+    this._ensureReady();
+    const opts = options ?? {};
+    let provider = opts.provider;
+    if (!provider) {
+      const key = this._sessionId ? `${label}_${this._sessionId}` : label;
+      provider = new AgentContextProvider(this._agent!, key);
+    }
+    return this.context.addBlock({
+      label,
+      description: opts.description,
+      maxTokens: opts.maxTokens,
+      provider
+    });
+  }
+
+  /**
+   * Remove a dynamically registered context block.
+   * Used during extension unload cleanup.
+   *
+   * Returns true if the block existed and was removed.
+   * Call `refreshSystemPrompt()` afterward to rebuild the prompt
+   * without the removed block.
+   */
+  removeContext(label: string): boolean {
+    this._ensureReady();
+    return this.context.removeBlock(label);
   }
 
   // ── Skills ───────────────────────────────────────────────────

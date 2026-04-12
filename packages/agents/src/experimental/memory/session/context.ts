@@ -15,7 +15,8 @@
  * - SearchProvider (get+search+set?)  → searchable via search_context tool
  */
 
-import { jsonSchema, type ToolSet } from "ai";
+import type { ToolSet } from "ai";
+import { z } from "zod";
 import { estimateStringTokens } from "../utils/tokens";
 import { isSearchProvider, type SearchProvider } from "./search";
 import { isSkillProvider, type SkillProvider } from "./skills";
@@ -164,6 +165,85 @@ export class ContextBlocks {
       });
     }
     this.loaded = true;
+  }
+
+  /**
+   * Dynamically register a new context block after initialization.
+   * Used by extensions to contribute context at runtime.
+   *
+   * If blocks have already been loaded, the new block's provider is
+   * initialized and loaded immediately. The snapshot is NOT updated
+   * automatically — call `refreshSystemPrompt()` to rebuild.
+   */
+  async addBlock(config: ContextConfig): Promise<ContextBlock> {
+    if (!this.loaded) await this.load();
+
+    if (this.configs.some((c) => c.label === config.label)) {
+      throw new Error(`Block "${config.label}" already exists`);
+    }
+
+    this.configs.push(config);
+
+    if (config.provider?.init) {
+      config.provider.init(config.label);
+    }
+
+    const content = config.provider
+      ? ((await config.provider.get()) ?? "")
+      : "";
+
+    const skill = config.provider ? isSkillProvider(config.provider) : false;
+    const searchable = config.provider
+      ? isSearchProvider(config.provider)
+      : false;
+    const writable = config.provider
+      ? isWritableProvider(config.provider) ||
+        (skill && !!(config.provider as SkillProvider).set) ||
+        (searchable && !!(config.provider as SearchProvider).set)
+      : false;
+
+    const block: ContextBlock = {
+      label: config.label,
+      description: config.description,
+      content,
+      tokens: estimateStringTokens(content),
+      maxTokens: config.maxTokens,
+      writable,
+      isSkill: skill,
+      isSearchable: searchable
+    };
+
+    this.blocks.set(config.label, block);
+    return block;
+  }
+
+  /**
+   * Remove a dynamically registered context block.
+   * Used during extension unload cleanup.
+   *
+   * Returns true if the block existed and was removed.
+   * The snapshot is NOT updated automatically — call
+   * `refreshSystemPrompt()` to rebuild.
+   *
+   * Note: loaded skills for this block are cleaned up from the
+   * tracking set but the skill unload callback is NOT fired
+   * (history reclamation is skipped — appropriate for full
+   * extension removal).
+   */
+  removeBlock(label: string): boolean {
+    const idx = this.configs.findIndex((c) => c.label === label);
+    if (idx === -1) return false;
+
+    this.configs.splice(idx, 1);
+    this.blocks.delete(label);
+
+    for (const id of this._loadedSkills) {
+      if (id.startsWith(`${label}:`)) {
+        this._loadedSkills.delete(id);
+      }
+    }
+
+    return true;
   }
 
   /**
@@ -572,9 +652,9 @@ export class ContextBlocks {
 
       toolSet.set_context = {
         description: `Write to a context block. Available blocks:\n${blockDescriptions.join("\n")}\n\nWrites are durable and persist across sessions.`,
-        inputSchema: jsonSchema({
+        inputSchema: z.fromJSONSchema({
           type: "object" as const,
-          properties: properties as Record<string, object>,
+          properties: properties as Record<string, Record<string, unknown>>,
           required
         }),
         execute: async ({
@@ -634,7 +714,7 @@ export class ContextBlocks {
           "Available skill blocks: " +
           skillLabels.map((l) => `"${l}"`).join(", ") +
           ". Check the system prompt for available keys.",
-        inputSchema: jsonSchema({
+        inputSchema: z.fromJSONSchema({
           type: "object" as const,
           properties: {
             label: {
@@ -667,7 +747,7 @@ export class ContextBlocks {
           (loadedList.length > 0
             ? " Currently loaded: " + loadedList.join(", ") + "."
             : " No skills currently loaded."),
-        inputSchema: jsonSchema({
+        inputSchema: z.fromJSONSchema({
           type: "object" as const,
           properties: {
             label: {
@@ -703,7 +783,7 @@ export class ContextBlocks {
           "Available searchable blocks: " +
           searchLabels.map((l) => `"${l}"`).join(", ") +
           ".",
-        inputSchema: jsonSchema({
+        inputSchema: z.fromJSONSchema({
           type: "object" as const,
           properties: {
             label: {
