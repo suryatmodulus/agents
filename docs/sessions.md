@@ -740,7 +740,7 @@ CREATE INDEX IF NOT EXISTS idx_search_entries_fts ON cf_agents_search_entries US
     }
   ],
   "placement": {
-    "region": "aws:us-east-1"  // match your database region
+    "region": "aws:us-east-1" // match your database region
   }
 }
 ```
@@ -790,9 +790,7 @@ class MyAgent extends Agent<Env> {
     const conn = await this.getConnection();
     const sessionId = this.ctx.id.toString();
 
-    this._session = Session.create(
-      new PostgresSessionProvider(conn, sessionId)
-    )
+    this._session = Session.create(new PostgresSessionProvider(conn, sessionId))
       .withContext("soul", {
         provider: {
           get: async () => "You are a helpful assistant."

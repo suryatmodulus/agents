@@ -261,10 +261,7 @@ export class Session {
    * Replace a load_context tool result in conversation history
    * with a short marker to reclaim context space.
    */
-  private async _reclaimLoadedSkill(
-    label: string,
-    key: string
-  ): Promise<void> {
+  private async _reclaimLoadedSkill(label: string, key: string): Promise<void> {
     const history = await this.storage.getHistory();
     for (let i = history.length - 1; i >= 0; i--) {
       const msg = history[i];

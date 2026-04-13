@@ -551,7 +551,6 @@ export class ContextBlocks {
       .map((b) => b.label);
   }
 
-
   // ── Public API ──────────────────────────────────────────────────
 
   /**

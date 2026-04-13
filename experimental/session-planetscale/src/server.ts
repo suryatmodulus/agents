@@ -53,9 +53,7 @@ export class ChatAgent extends Agent<Env> {
     const conn = await this.getConnection();
     const sessionId = this.ctx.id.toString();
 
-    this._session = Session.create(
-      new PostgresSessionProvider(conn, sessionId)
-    )
+    this._session = Session.create(new PostgresSessionProvider(conn, sessionId))
       .withContext("soul", {
         provider: {
           get: async () =>
@@ -63,7 +61,8 @@ export class ChatAgent extends Agent<Env> {
         }
       })
       .withContext("memory", {
-        description: "Short facts — append one-liners like preferences, names, key details",
+        description:
+          "Short facts — append one-liners like preferences, names, key details",
         maxTokens: 1100,
         provider: new PostgresContextProvider(conn, `memory_${sessionId}`)
       })

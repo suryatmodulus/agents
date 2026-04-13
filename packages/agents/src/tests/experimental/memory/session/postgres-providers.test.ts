@@ -29,7 +29,8 @@ class InMemoryPostgres implements PostgresConnection {
     if (q.startsWith("INSERT INTO")) return this.handleInsert(q, params);
     if (q.startsWith("UPDATE")) return this.handleUpdate(q, params);
     if (q.startsWith("DELETE FROM")) return this.handleDelete(q, params);
-    if (q.startsWith("SELECT") || q.startsWith("WITH")) return this.handleSelect(q, params);
+    if (q.startsWith("SELECT") || q.startsWith("WITH"))
+      return this.handleSelect(q, params);
     return { rows: [] };
   }
 
@@ -102,12 +103,13 @@ class InMemoryPostgres implements PostgresConnection {
     const tableName = tableMatch[1];
     const table = this.getTable(tableName);
 
-    if (q.includes("WHERE id = ") || (q.includes("id = ") && q.includes("AND session_id = "))) {
+    if (
+      q.includes("WHERE id = ") ||
+      (q.includes("id = ") && q.includes("AND session_id = "))
+    ) {
       this.tables.set(
         tableName,
-        table.filter(
-          (r) => !(r.id === params[0] && r.session_id === params[1])
-        )
+        table.filter((r) => !(r.id === params[0] && r.session_id === params[1]))
       );
     } else if (q.includes("session_id = ")) {
       this.tables.set(
@@ -138,7 +140,12 @@ class InMemoryPostgres implements PostgresConnection {
     if (!tableMatch) return { rows: [] };
     let tableName = tableMatch[1];
     // Handle alias: FROM table alias
-    if (tableName === "cf_agents_context_blocks" || tableName === "cf_agents_search_entries" || tableName === "assistant_messages" || tableName === "assistant_compactions") {
+    if (
+      tableName === "cf_agents_context_blocks" ||
+      tableName === "cf_agents_search_entries" ||
+      tableName === "assistant_messages" ||
+      tableName === "assistant_compactions"
+    ) {
       // good
     } else {
       return { rows: [] };
@@ -229,9 +236,7 @@ class InMemoryPostgres implements PostgresConnection {
           .toLowerCase()
           .split(/\s+/);
         result = result.filter((r) =>
-          terms.some((t) =>
-            (r.content as string).toLowerCase().includes(t)
-          )
+          terms.some((t) => (r.content as string).toLowerCase().includes(t))
         );
       }
     }
@@ -239,15 +244,18 @@ class InMemoryPostgres implements PostgresConnection {
     // Handle LEFT JOIN for latest leaf
     if (q.includes("LEFT JOIN") && q.includes("c.id IS NULL")) {
       const allIds = new Set(table.map((r) => r.id));
-      const childParentIds = new Set(table.map((r) => r.parent_id).filter(Boolean));
+      const childParentIds = new Set(
+        table.map((r) => r.parent_id).filter(Boolean)
+      );
       result = result.filter(
-        (r) => !childParentIds.has(r.id as string) || !allIds.has(r.id as string)
+        (r) =>
+          !childParentIds.has(r.id as string) || !allIds.has(r.id as string)
       );
       // Actually: leaf = no children pointing to it
-      const parentIds = new Set(table.filter(r => r.parent_id).map(r => r.parent_id));
-      result = table.filter(
-        (r) => !parentIds.has(r.id as string)
+      const parentIds = new Set(
+        table.filter((r) => r.parent_id).map((r) => r.parent_id)
       );
+      result = table.filter((r) => !parentIds.has(r.id as string));
       // Apply session filter
       if (sessionMatch) {
         const val = params[Number(sessionMatch[1]) - 1];
@@ -270,11 +278,7 @@ class InMemoryPostgres implements PostgresConnection {
 
 // ── Helpers ─────────────────────────────────────────────────────
 
-function makeMessage(
-  id: string,
-  role: string,
-  text: string
-): SessionMessage {
+function makeMessage(id: string, role: string, text: string): SessionMessage {
   return { id, role, parts: [{ type: "text", text }] };
 }
 
@@ -446,7 +450,10 @@ describe("PostgresSearchProvider", () => {
   });
 
   it("searches indexed content", async () => {
-    await search.set("notes", "the deployment is on Friday with budget concerns");
+    await search.set(
+      "notes",
+      "the deployment is on Friday with budget concerns"
+    );
     await search.set("api-doc", "REST endpoints with JSON responses");
 
     const result = await search.search("deployment");
@@ -587,9 +594,7 @@ describe("Postgres providers with Session + ContextBlocks", () => {
     await memProvider.set("Fact A");
 
     const blocks = new ContextBlocks(
-      [
-        { label: "memory", description: "Facts", provider: memProvider }
-      ],
+      [{ label: "memory", description: "Facts", provider: memProvider }],
       promptStore
     );
 
@@ -613,9 +618,7 @@ describe("Postgres providers with Session + ContextBlocks", () => {
     await memProvider.set("Fact A");
 
     const blocks = new ContextBlocks(
-      [
-        { label: "memory", description: "Facts", provider: memProvider }
-      ],
+      [{ label: "memory", description: "Facts", provider: memProvider }],
       promptStore
     );
 
@@ -642,9 +645,7 @@ describe("Postgres providers with Session + ContextBlocks", () => {
     await memProvider.set("Fact A");
 
     const blocks = new ContextBlocks(
-      [
-        { label: "memory", description: "Facts", provider: memProvider }
-      ],
+      [{ label: "memory", description: "Facts", provider: memProvider }],
       promptStore
     );
 
@@ -666,9 +667,7 @@ describe("Postgres providers with Session + ContextBlocks", () => {
     await memProvider.set("Concurrent test");
 
     const blocks = new ContextBlocks(
-      [
-        { label: "memory", description: "Facts", provider: memProvider }
-      ],
+      [{ label: "memory", description: "Facts", provider: memProvider }],
       promptStore
     );
 
@@ -756,7 +755,9 @@ describe("dynamic-tool parts round-trip through Postgres", () => {
   });
 
   it("preserves dynamic-tool parts in getHistory chain", async () => {
-    await provider.appendMessage(makeMessage("u1", "user", "remember I like cats"));
+    await provider.appendMessage(
+      makeMessage("u1", "user", "remember I like cats")
+    );
     await provider.appendMessage(makeToolMessage("a1"));
     await provider.appendMessage(makeMessage("u2", "user", "what do I like?"));
 
@@ -768,7 +769,10 @@ describe("dynamic-tool parts round-trip through Postgres", () => {
     expect(assistantMsg.id).toBe("a1");
     expect(assistantMsg.parts).toHaveLength(2);
 
-    const toolPart = assistantMsg.parts[0] as unknown as Record<string, unknown>;
+    const toolPart = assistantMsg.parts[0] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(toolPart.type).toBe("dynamic-tool");
     expect(toolPart.state).toBe("output-available");
     expect(toolPart.output).toBe("Saved to memory");
@@ -899,7 +903,9 @@ describe("convertToModelMessages compatibility", () => {
   it("multi-turn with tools converts correctly for second generateText call", async () => {
     // Simulate: user asks -> assistant uses tool -> user asks again
     // This is the exact flow that breaks in production
-    await provider.appendMessage(makeMessage("u1", "user", "remember I like cats"));
+    await provider.appendMessage(
+      makeMessage("u1", "user", "remember I like cats")
+    );
     await provider.appendMessage(makeToolMessage("a1"));
     await provider.appendMessage(makeMessage("u2", "user", "what do I like?"));
 
@@ -949,7 +955,10 @@ describe("convertToModelMessages compatibility", () => {
 
     // Assistant message should have 2 tool-calls
     const assistantModel = modelMessages.find((m) => m.role === "assistant");
-    const content = assistantModel!.content as Array<{ type: string; toolCallId?: string }>;
+    const content = assistantModel!.content as Array<{
+      type: string;
+      toolCallId?: string;
+    }>;
     const toolCalls = content.filter((c) => c.type === "tool-call");
     expect(toolCalls).toHaveLength(2);
 

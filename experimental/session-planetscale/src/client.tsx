@@ -148,9 +148,11 @@ function Chat() {
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<
-    Array<{ id: string; role: string; content: string }> | null
-  >(null);
+  const [searchResults, setSearchResults] = useState<Array<{
+    id: string;
+    role: string;
+    content: string;
+  }> | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasFetched = useRef(false);
@@ -245,8 +247,7 @@ function Chat() {
                   setSystemPrompt(null);
                 } else {
                   try {
-                    const prompt =
-                      await agent.call<string>("getSystemPrompt");
+                    const prompt = await agent.call<string>("getSystemPrompt");
                     setSystemPrompt(prompt);
                   } catch (err) {
                     console.error("Failed to get system prompt:", err);
@@ -279,7 +280,11 @@ function Chat() {
         <div className="border-b border-kumo-line bg-amber-50 dark:bg-amber-950/20 max-h-[40vh] overflow-y-auto">
           <div className="max-w-3xl mx-auto px-5 py-4">
             <div className="flex items-center justify-between mb-2">
-              <Text size="xs" bold className="text-amber-700 dark:text-amber-400">
+              <Text
+                size="xs"
+                bold
+                className="text-amber-700 dark:text-amber-400"
+              >
                 System Prompt
               </Text>
               <Button
@@ -287,7 +292,9 @@ function Chat() {
                 size="sm"
                 onClick={async () => {
                   try {
-                    const prompt = await agent.call<string>("refreshSystemPrompt");
+                    const prompt = await agent.call<string>(
+                      "refreshSystemPrompt"
+                    );
                     setSystemPrompt(prompt);
                   } catch (err) {
                     console.error(err);

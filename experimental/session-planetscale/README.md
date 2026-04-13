@@ -56,9 +56,7 @@ const session = Session.create(this)
 // PlanetScale: pass providers explicitly
 const conn = connect({ host, username, password });
 
-const session = Session.create(
-  new PlanetScaleSessionProvider(conn, sessionId)
-)
+const session = Session.create(new PlanetScaleSessionProvider(conn, sessionId))
   .withContext("memory", {
     maxTokens: 1100,
     provider: new PlanetScaleContextProvider(conn, `memory_${sessionId}`)

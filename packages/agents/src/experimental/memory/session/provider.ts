@@ -30,7 +30,9 @@ export interface StoredCompaction {
 export interface SessionProvider {
   // ── Read ────────────────────────────────────────────────────────
 
-  getMessage(id: string): SessionMessage | null | Promise<SessionMessage | null>;
+  getMessage(
+    id: string
+  ): SessionMessage | null | Promise<SessionMessage | null>;
 
   /**
    * Get conversation as a path from root to leaf.
@@ -42,9 +44,7 @@ export interface SessionProvider {
 
   getLatestLeaf(): SessionMessage | null | Promise<SessionMessage | null>;
 
-  getBranches(
-    messageId: string
-  ): SessionMessage[] | Promise<SessionMessage[]>;
+  getBranches(messageId: string): SessionMessage[] | Promise<SessionMessage[]>;
 
   getPathLength(leafId?: string | null): number | Promise<number>;
 
