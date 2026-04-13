@@ -2071,6 +2071,7 @@ export class Think<
         };
         const safe = enforceRowSizeLimit(sanitizeMessage(updatedMsg));
         await this.session.updateMessage(safe);
+        await this._syncMessages();
         this._broadcast({ type: MSG_MESSAGE_UPDATED, message: safe });
         return;
       }

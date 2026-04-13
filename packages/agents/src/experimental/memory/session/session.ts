@@ -199,7 +199,7 @@ export class Session {
 
     this.context = new ContextBlocks(configs, promptStore);
     this.context.setUnloadCallback((label, key) => {
-      this._reclaimLoadedSkill(label, key);
+      this._reclaimLoadedSkill(label, key).catch(() => {});
     });
     this._restoreLoadedSkills();
     this._ready = true;

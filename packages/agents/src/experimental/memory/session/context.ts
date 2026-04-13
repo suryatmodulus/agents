@@ -455,8 +455,12 @@ export class ContextBlocks {
     if (!existing) {
       throw new Error(`Block "${label}" not found`);
     }
-    const separator = existing.content.length > 0 ? "\n" : "";
-    return this.setBlock(label, existing.content + separator + content);
+    const needsSep =
+      existing.content.length > 0 && !content.startsWith("\n");
+    return this.setBlock(
+      label,
+      existing.content + (needsSep ? "\n" : "") + content
+    );
   }
 
   /**
@@ -500,9 +504,9 @@ export class ContextBlocks {
         const pct = Math.round((block.tokens / block.maxTokens) * 100);
         header += ` [${pct}% — ${block.tokens}/${block.maxTokens} tokens]`;
       }
-      if (!block.writable) header += " [readonly]";
-      else if (block.isSearchable) header += " [searchable]";
+      if (block.isSearchable) header += " [searchable]";
       else if (block.isSkill) header += " [loadable]";
+      else if (!block.writable) header += " [readonly]";
       else header += " [not searchable]";
 
       parts.push(`${sep}\n${header}\n${sep}\n${block.content}`);
