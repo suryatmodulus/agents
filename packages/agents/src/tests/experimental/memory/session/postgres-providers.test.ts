@@ -738,7 +738,7 @@ describe("dynamic-tool parts round-trip through Postgres", () => {
     expect(retrieved).not.toBeNull();
     expect(retrieved!.parts).toHaveLength(2);
 
-    const toolPart = retrieved!.parts[0] as Record<string, unknown>;
+    const toolPart = retrieved!.parts[0] as unknown as Record<string, unknown>;
     expect(toolPart.type).toBe("dynamic-tool");
     expect(toolPart.toolName).toBe("set_context");
     expect(toolPart.toolCallId).toBe("call-abc-123");
@@ -768,7 +768,7 @@ describe("dynamic-tool parts round-trip through Postgres", () => {
     expect(assistantMsg.id).toBe("a1");
     expect(assistantMsg.parts).toHaveLength(2);
 
-    const toolPart = assistantMsg.parts[0] as Record<string, unknown>;
+    const toolPart = assistantMsg.parts[0] as unknown as Record<string, unknown>;
     expect(toolPart.type).toBe("dynamic-tool");
     expect(toolPart.state).toBe("output-available");
     expect(toolPart.output).toBe("Saved to memory");
