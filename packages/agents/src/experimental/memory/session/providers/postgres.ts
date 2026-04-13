@@ -122,7 +122,8 @@ export class PostgresSessionProvider implements SessionProvider {
     message: SessionMessage,
     parentId?: string | null
   ): Promise<void> {
-    const parent = parentId ?? (await this.latestLeafRow())?.id ?? null;
+    const parent =
+      parentId ?? ((await this.latestLeafRow())?.id as string) ?? null;
     const json = JSON.stringify(message);
 
     await this.conn.execute(

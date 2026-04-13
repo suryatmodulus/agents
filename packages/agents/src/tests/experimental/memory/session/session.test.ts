@@ -511,7 +511,7 @@ describe("Session.create() builder", () => {
 
   it("Session.create accepts a SessionProvider directly", async () => {
     // Minimal mock SessionProvider
-    const messages: UIMessage[] = [];
+    const messages: SessionMessage[] = [];
     const mockStorage: SessionProvider = {
       getMessage: (id) => messages.find((m) => m.id === id) ?? null,
       getHistory: () => messages,
@@ -573,8 +573,7 @@ describe("Session.create() builder", () => {
     // withContext without explicit provider + no SqlProvider = no auto-wiring
     // Block should still work (readonly with initialContent)
     const session = Session.create(mockStorage).withContext("soul", {
-      initialContent: "identity",
-      readonly: true
+      provider: { get: async () => "identity" }
     });
 
     const prompt = await session.freezeSystemPrompt();
@@ -650,7 +649,9 @@ function createCompactableSession(
     getLatestLeaf: () => messages[messages.length - 1] ?? null,
     getBranches: () => [],
     getPathLength: () => messages.length,
-    appendMessage: (msg) => messages.push(msg),
+    appendMessage: (msg) => {
+      messages.push(msg);
+    },
     updateMessage: () => {},
     deleteMessages: () => {},
     clearMessages: () => {
@@ -888,7 +889,9 @@ describe("Session.compact()", () => {
       getLatestLeaf: () => messages[messages.length - 1] ?? null,
       getBranches: () => [],
       getPathLength: () => messages.length,
-      appendMessage: (msg) => messages.push(msg),
+      appendMessage: (msg) => {
+        messages.push(msg);
+      },
       updateMessage: () => {},
       deleteMessages: () => {},
       clearMessages: () => {},
@@ -942,7 +945,9 @@ describe("Session.compact()", () => {
       getLatestLeaf: () => messages[messages.length - 1] ?? null,
       getBranches: () => [],
       getPathLength: () => messages.length,
-      appendMessage: (msg) => messages.push(msg),
+      appendMessage: (msg) => {
+        messages.push(msg);
+      },
       updateMessage: () => {},
       deleteMessages: () => {},
       clearMessages: () => {},
@@ -1023,7 +1028,9 @@ describe("Session.compact()", () => {
       getLatestLeaf: () => messages[messages.length - 1] ?? null,
       getBranches: () => [],
       getPathLength: () => messages.length,
-      appendMessage: (msg) => messages.push(msg),
+      appendMessage: (msg) => {
+        messages.push(msg);
+      },
       updateMessage: () => {},
       deleteMessages: () => {},
       clearMessages: () => {},
