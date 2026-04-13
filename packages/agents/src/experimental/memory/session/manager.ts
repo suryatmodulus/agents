@@ -283,9 +283,9 @@ export class SessionManager {
     parentId?: string
   ): Promise<string> {
     const session = this.getSession(sessionId);
-    const existing = session.getMessage(message.id);
+    const existing = await session.getMessage(message.id);
     if (existing) {
-      session.updateMessage(message);
+      await session.updateMessage(message);
     } else {
       await session.appendMessage(message, parentId);
     }

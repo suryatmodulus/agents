@@ -561,7 +561,7 @@ export class ContextBlocks {
   async freezeSystemPrompt(): Promise<string> {
     if (this.promptStore) {
       const stored = await this.promptStore.get();
-      if (stored) return stored;
+      if (stored !== null) return stored;
     }
 
     if (!this.loaded) await this.load();

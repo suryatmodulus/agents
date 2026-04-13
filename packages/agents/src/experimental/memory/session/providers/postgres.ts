@@ -62,13 +62,14 @@ export class PostgresSessionProvider implements SessionProvider {
 
     const { rows } = await this.conn.execute(
       `WITH RECURSIVE path AS (
-        SELECT id, parent_id, content, 0 as depth FROM assistant_messages WHERE id = ?
+        SELECT id, parent_id, content, 0 as depth FROM assistant_messages WHERE id = ? AND session_id = ?
         UNION ALL
         SELECT m.id, m.parent_id, m.content, p.depth + 1 FROM assistant_messages m
         JOIN path p ON m.id = p.parent_id
+        WHERE m.session_id = ? AND p.depth < 10000
       )
       SELECT content FROM path ORDER BY depth DESC`,
-      [leaf.id as string]
+      [leaf.id as string, this.sessionId, this.sessionId]
     );
 
     const messages = this.parseRows(rows);
@@ -103,13 +104,14 @@ export class PostgresSessionProvider implements SessionProvider {
 
     const { rows } = await this.conn.execute(
       `WITH RECURSIVE path AS (
-        SELECT id, parent_id FROM assistant_messages WHERE id = ?
+        SELECT id, parent_id, 0 as depth FROM assistant_messages WHERE id = ? AND session_id = ?
         UNION ALL
-        SELECT m.id, m.parent_id FROM assistant_messages m
+        SELECT m.id, m.parent_id, p.depth + 1 FROM assistant_messages m
         JOIN path p ON m.id = p.parent_id
+        WHERE m.session_id = ? AND p.depth < 10000
       )
       SELECT COUNT(*) as count FROM path`,
-      [leaf.id as string]
+      [leaf.id as string, this.sessionId, this.sessionId]
     );
     return Number(rows[0]?.count ?? 0);
   }

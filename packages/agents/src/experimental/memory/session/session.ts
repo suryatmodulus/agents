@@ -503,8 +503,13 @@ export class Session {
     const opts = options ?? {};
     let provider = opts.provider;
     if (!provider) {
+      if (!this._agent) {
+        throw new Error(
+          `addContext("${label}") requires an explicit provider when Session uses a SessionProvider`
+        );
+      }
       const key = this._sessionId ? `${label}_${this._sessionId}` : label;
-      provider = new AgentContextProvider(this._agent!, key);
+      provider = new AgentContextProvider(this._agent, key);
     }
     return this.context.addBlock({
       label,
