@@ -2059,8 +2059,8 @@ export class Think<
     matchStates: string[];
     apply: (part: Record<string, unknown>) => Record<string, unknown>;
   }): Promise<void> {
-    const history = this.messages;
-    for (const msg of history) {
+    for (let i = 0; i < this._cachedMessages.length; i++) {
+      const msg = this._cachedMessages[i];
       const result = applyToolUpdate(
         msg.parts as Array<Record<string, unknown>>,
         update
@@ -2072,6 +2072,7 @@ export class Think<
         };
         const safe = enforceRowSizeLimit(sanitizeMessage(updatedMsg));
         await this.session.updateMessage(safe);
+        this._cachedMessages[i] = safe as UIMessage;
         this._broadcast({ type: MSG_MESSAGE_UPDATED, message: safe });
         return;
       }
