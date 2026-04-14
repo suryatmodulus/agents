@@ -1,5 +1,11 @@
 # @cloudflare/worker-bundler
 
+## 0.1.1
+
+### Patch Changes
+
+- [#1296](https://github.com/cloudflare/agents/pull/1296) [`88170b3`](https://github.com/cloudflare/agents/commit/88170b3ef7af1cf9f6c9a812e0c98f3357199e9b) Thanks [@zebp](https://github.com/zebp)! - Fix browser bundling target by setting tsdown platform to "browser"
+
 ## 0.1.0
 
 ### Minor Changes
