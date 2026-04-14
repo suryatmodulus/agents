@@ -1,5 +1,11 @@
 # @cloudflare/think
 
+## 0.2.2
+
+### Patch Changes
+
+- [#1163](https://github.com/cloudflare/agents/pull/1163) [`d3f757c`](https://github.com/cloudflare/agents/commit/d3f757c264f6271cb34863daaad0e381e40e6a6f) Thanks [@threepointone](https://github.com/threepointone)! - Add first-class browser tools (`@cloudflare/think/tools/browser`) for CDP-based web automation, matching the execution ladder alongside workspace, execute, and extensions.
+
 ## 0.2.1
 
 ### Patch Changes
