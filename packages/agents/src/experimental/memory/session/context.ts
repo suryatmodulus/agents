@@ -506,7 +506,7 @@ export class ContextBlocks {
       if (block.isSearchable) header += " [searchable]";
       else if (block.isSkill) header += " [loadable]";
       else if (!block.writable) header += " [readonly]";
-      else header += " [not searchable]";
+      else header += " [writable]";
 
       parts.push(`${sep}\n${header}\n${sep}\n${block.content}`);
     }
