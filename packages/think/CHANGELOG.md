@@ -35,6 +35,7 @@
 - [#1270](https://github.com/cloudflare/agents/pull/1270) [`87b4512`](https://github.com/cloudflare/agents/commit/87b4512985e47de659bf970a65a6d1951f5855fe) Thanks [@threepointone](https://github.com/threepointone)! - Wire Session into Think as the storage layer, achieving full feature parity with AIChatAgent plus Session-backed advantages.
 
   **Think (`@cloudflare/think`):**
+
   - Session integration: `this.messages` backed by `session.getHistory()`, tree-structured messages, context blocks, compaction, FTS5 search
   - `configureSession()` override for context blocks, compaction, search, skills (sync or async)
   - `assembleContext()` returns `{ system, messages }` with context block composition
@@ -53,10 +54,12 @@
   - Constructor wraps `onStart` — subclasses never need `super.onStart()`
 
   **agents (`agents/chat`):**
+
   - Extract `AbortRegistry`, `applyToolUpdate` + builders, `parseProtocolMessage` into shared `agents/chat` layer
   - Add `applyChunkToParts` export for fiber recovery
 
   **AIChatAgent (`@cloudflare/ai-chat`):**
+
   - Refactor to use shared `AbortRegistry` from `agents/chat`
   - Add `continuation` flag to `OnChatMessageOptions`
   - Export `getAgentMessages()` and tool part helpers
@@ -71,6 +74,7 @@
   `Think` now extends `Agent` directly (no mixin). Fiber support is inherited from the base class.
 
   **Breaking (experimental APIs only):**
+
   - Removed `withFibers` mixin (`agents/experimental/forever`)
   - Removed `withDurableChat` mixin (`@cloudflare/ai-chat/experimental/forever`)
   - Removed `./experimental/forever` export from both packages
