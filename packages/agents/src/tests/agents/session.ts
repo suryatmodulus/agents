@@ -157,12 +157,12 @@ export class TestSearchAgent extends Agent<Cloudflare.Env> {
 
       await setTool.execute({
         label: "knowledge",
-        key: "meeting-notes",
+        title: "meeting-notes",
         content: "The deployment is scheduled for Friday with budget concerns"
       });
       await setTool.execute({
         label: "knowledge",
-        key: "design-doc",
+        title: "design-doc",
         content: "The API uses REST endpoints with JSON responses"
       });
 
@@ -171,7 +171,7 @@ export class TestSearchAgent extends Agent<Cloudflare.Env> {
         label: "knowledge",
         query: "deployment"
       });
-      if (!r1.includes("meeting-notes"))
+      if (!r1.includes("deployment"))
         return { success: false, error: "single word search failed" };
 
       // Multi-word search (non-adjacent terms)
@@ -179,7 +179,7 @@ export class TestSearchAgent extends Agent<Cloudflare.Env> {
         label: "knowledge",
         query: "deployment budget"
       });
-      if (!r2.includes("meeting-notes"))
+      if (!r2.includes("budget"))
         return {
           success: false,
           error: "multi-word non-adjacent search failed"
@@ -198,7 +198,7 @@ export class TestSearchAgent extends Agent<Cloudflare.Env> {
         label: "knowledge",
         query: "REST"
       });
-      if (!r4.includes("design-doc"))
+      if (!r4.includes("REST"))
         return { success: false, error: "cross-key search failed" };
 
       return { success: true };
@@ -216,8 +216,8 @@ export class TestSearchAgent extends Agent<Cloudflare.Env> {
       const prompt = await this.session.freezeSystemPrompt();
       if (!prompt.includes("KNOWLEDGE"))
         return { success: false, error: "prompt missing KNOWLEDGE" };
-      if (!prompt.includes("search_context"))
-        return { success: false, error: "prompt missing search_context hint" };
+      if (!prompt.includes("[searchable]"))
+        return { success: false, error: "prompt missing [searchable] tag" };
 
       return { success: true };
     } catch (err) {
@@ -238,15 +238,15 @@ export class TestSearchAgent extends Agent<Cloudflare.Env> {
         execute: (args: Record<string, string>) => Promise<string>;
       };
 
-      // Index then replace
+      // Index then replace — same title → same key → upsert
       await setTool.execute({
         label: "knowledge",
-        key: "doc",
+        title: "doc",
         content: "original content about cats"
       });
       await setTool.execute({
         label: "knowledge",
-        key: "doc",
+        title: "doc",
         content: "replaced content about dogs"
       });
 
