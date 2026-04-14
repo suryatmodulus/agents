@@ -1245,8 +1245,8 @@ export class Think<
   // ── Message access ──────────────────────────────────────────────
 
   /** Get the conversation history as UIMessage[]. */
-  getMessages(): UIMessage[] {
-    return this.messages;
+  async getMessages(): Promise<UIMessage[]> {
+    return (await this.session.getHistory()) as UIMessage[];
   }
 
   /** Clear all messages from storage. */
