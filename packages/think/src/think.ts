@@ -1154,6 +1154,7 @@ export class Think<
           : userMessage;
 
       await this.session.appendMessage(userMsg);
+      await this._syncMessages();
 
       const accumulator = new StreamAccumulator({
         messageId: crypto.randomUUID()
