@@ -1,10 +1,10 @@
-# PlanetScale Session Example
+# Postgres Session Example
 
-Agent with session history stored in PlanetScale (MySQL) instead of Durable Object SQLite.
+Agent with session history stored in an external Postgres database via [Cloudflare Hyperdrive](https://developers.cloudflare.com/hyperdrive/) instead of Durable Object SQLite.
 
-## Why PlanetScale?
+## Why external Postgres?
 
-DO SQLite is great for per-user state, but sessions live and die with the DO. PlanetScale gives you:
+DO SQLite is great for per-user state, but sessions live and die with the DO. An external database gives you:
 
 - **Cross-DO queries** — search across all conversations from any Worker
 - **Analytics** — run SQL against your conversation data directly
@@ -13,35 +13,29 @@ DO SQLite is great for per-user state, but sessions live and die with the DO. Pl
 
 ## Setup
 
-### 1. Create a PlanetScale database
+### 1. Create a Postgres database
 
-Sign up at [planetscale.com](https://planetscale.com) and create a database. The free hobby tier works fine for development.
+Use any Postgres provider (Neon, Supabase, PlanetScale, etc.) and copy the connection string.
 
-### 2. Get connection credentials
-
-In the PlanetScale dashboard → your database → **Connect** → choose `@planetscale/database` → copy the host, username, and password.
-
-### 3. Set Worker secrets
+### 2. Create a Hyperdrive config
 
 ```bash
-wrangler secret put PLANETSCALE_HOST
-# paste: your-db-xxxxxxx.us-east-2.psdb.cloud
-
-wrangler secret put PLANETSCALE_USERNAME
-# paste: your username
-
-wrangler secret put PLANETSCALE_PASSWORD
-# paste: your password
+npx wrangler hyperdrive create my-session-db \
+  --connection-string="postgresql://user:password@host:port/dbname"
 ```
+
+Update `wrangler.jsonc` with the returned Hyperdrive ID.
+
+### 3. Create the tables
+
+Run the migration SQL from [docs/sessions.md](../../docs/sessions.md#3-create-the-tables) in your database console. The providers do not auto-create tables — migrations are managed by you.
 
 ### 4. Deploy
 
 ```bash
 npm install
-wrangler deploy
+npm run deploy
 ```
-
-Tables (`assistant_messages`, `assistant_compactions`, `cf_agents_context_blocks`) are auto-created on first request.
 
 ## How it works
 
@@ -53,16 +47,19 @@ const session = Session.create(this)
   .withContext("memory", { maxTokens: 1100 })
   .withCachedPrompt();
 
-// PlanetScale: pass providers explicitly
-const conn = connect({ host, username, password });
+// Postgres: pass providers explicitly
+const conn = wrapPgClient(pgClient);
 
-const session = Session.create(new PlanetScaleSessionProvider(conn, sessionId))
+const session = Session.create(new PostgresSessionProvider(conn, sessionId))
   .withContext("memory", {
     maxTokens: 1100,
-    provider: new PlanetScaleContextProvider(conn, `memory_${sessionId}`)
+    provider: new PostgresContextProvider(conn, `memory_${sessionId}`)
+  })
+  .withContext("knowledge", {
+    provider: new PostgresSearchProvider(conn)
   })
   .withCachedPrompt(
-    new PlanetScaleContextProvider(conn, `_prompt_${sessionId}`)
+    new PostgresContextProvider(conn, `_prompt_${sessionId}`)
   );
 ```
 
@@ -70,10 +67,10 @@ When `Session.create()` receives a `SessionProvider` (not a `SqlProvider`), it s
 
 ## Connection interface
 
-The providers work with `@planetscale/database` out of the box, but any driver matching this interface works:
+The providers use `?` placeholders internally. This example wraps the `pg` driver to convert them to `$1, $2, ...`:
 
 ```ts
-interface PlanetScaleConnection {
+interface PostgresConnection {
   execute(
     query: string,
     args?: (string | number | boolean | null)[]
@@ -81,4 +78,4 @@ interface PlanetScaleConnection {
 }
 ```
 
-This means you can also use [Neon](https://neon.tech), [Turso](https://turso.tech), or any MySQL/Postgres driver with a compatible `execute()` method.
+Any Postgres driver with a compatible `execute()` method works.
