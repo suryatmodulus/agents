@@ -2071,10 +2071,6 @@ export class Think<
         };
         const safe = enforceRowSizeLimit(sanitizeMessage(updatedMsg));
         await this.session.updateMessage(safe);
-        // Update cached messages in-place — no need to re-read from storage
-        // since we already have the updated message
-        const idx = this._cachedMessages.findIndex((m) => m.id === safe.id);
-        if (idx !== -1) this._cachedMessages[idx] = safe as UIMessage;
         this._broadcast({ type: MSG_MESSAGE_UPDATED, message: safe });
         return;
       }
