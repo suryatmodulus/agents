@@ -37,7 +37,7 @@ export class ChatAgent extends Agent<Env> {
   private _session?: Session;
   private _pgClient?: Client;
 
-  private async getConnection(): Promise<PostgresConnection> {
+  private async getPgConnection(): Promise<PostgresConnection> {
     if (!this._pgClient) {
       this._pgClient = new Client({
         connectionString: this.env.HYPERDRIVE.connectionString
@@ -50,7 +50,7 @@ export class ChatAgent extends Agent<Env> {
   private async getSession(): Promise<Session> {
     if (this._session) return this._session;
 
-    const conn = await this.getConnection();
+    const conn = await this.getPgConnection();
     const sessionId = this.ctx.id.toString();
 
     this._session = Session.create(new PostgresSessionProvider(conn, sessionId))

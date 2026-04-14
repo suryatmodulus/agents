@@ -280,13 +280,9 @@ function Chat() {
         <div className="border-b border-kumo-line bg-amber-50 dark:bg-amber-950/20 max-h-[40vh] overflow-y-auto">
           <div className="max-w-3xl mx-auto px-5 py-4">
             <div className="flex items-center justify-between mb-2">
-              <Text
-                size="xs"
-                bold
-                className="text-amber-700 dark:text-amber-400"
-              >
+              <span className="text-xs font-bold text-amber-700 dark:text-amber-400">
                 System Prompt
-              </Text>
+              </span>
               <Button
                 variant="ghost"
                 size="sm"

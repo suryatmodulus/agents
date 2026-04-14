@@ -303,7 +303,9 @@ describe("set_context tool", () => {
     });
 
     // Key is auto-generated from content slug
-    expect(await provider.load("just-content-no-desc")).toBe("Just content, no desc");
+    expect(await provider.load("just-content-no-desc")).toBe(
+      "Just content, no desc"
+    );
   });
 
   it("multiple set_context calls accumulate skills in metadata", async () => {

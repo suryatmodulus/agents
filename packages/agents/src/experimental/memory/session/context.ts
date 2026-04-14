@@ -455,8 +455,7 @@ export class ContextBlocks {
     if (!existing) {
       throw new Error(`Block "${label}" not found`);
     }
-    const needsSep =
-      existing.content.length > 0 && !content.startsWith("\n");
+    const needsSep = existing.content.length > 0 && !content.startsWith("\n");
     return this.setBlock(
       label,
       existing.content + (needsSep ? "\n" : "") + content

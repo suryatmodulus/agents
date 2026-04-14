@@ -251,8 +251,8 @@ export class SessionManager {
     ` as unknown as SessionInfo[];
   }
 
-  delete(sessionId: string): void {
-    this.getSession(sessionId).clearMessages();
+  async delete(sessionId: string): Promise<void> {
+    await this.getSession(sessionId).clearMessages();
     this.agent.sql`DELETE FROM assistant_sessions WHERE id = ${sessionId}`;
     this._sessions.delete(sessionId);
   }
