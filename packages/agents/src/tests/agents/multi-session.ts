@@ -296,7 +296,7 @@ export class TestMultiSessionAgent extends Agent {
       if ((await s.getHistory()).length !== 1)
         return { success: false, error: "msg not added" };
 
-      mgr.delete(info.id);
+      await mgr.delete(info.id);
       if (mgr.get(info.id) !== null)
         return { success: false, error: "session still exists after delete" };
 

@@ -209,7 +209,7 @@ export class PostgresSessionProvider implements SessionProvider {
     return rows.map((r) => ({
       id: r.id as string,
       role: r.role as string,
-      content: r.content as string,
+      content: this.extractText(r.content as string),
       createdAt: ""
     }));
   }
@@ -285,5 +285,14 @@ export class PostgresSessionProvider implements SessionProvider {
       if (msg) result.push(msg);
     }
     return result;
+  }
+
+  private extractText(json: string): string {
+    const msg = this.parse(json);
+    if (!msg) return json;
+    return msg.parts
+      .filter((p) => p.type === "text" && p.text)
+      .map((p) => p.text)
+      .join("\n");
   }
 }

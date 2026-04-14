@@ -80,8 +80,8 @@ export class MultiSessionAgent extends Agent<Env> {
   }
 
   @callable()
-  deleteChat(chatId: string) {
-    this.manager.delete(chatId);
+  async deleteChat(chatId: string) {
+    await this.manager.delete(chatId);
   }
 
   // ── Chat ──────────────────────────────────────────────────────
