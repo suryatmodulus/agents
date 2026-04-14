@@ -471,8 +471,9 @@ describe("Session.create() builder", () => {
       provider: new MemoryBlockProvider(null)
     });
     const prompt = await session.freezeSystemPrompt();
-    // Empty content → block not rendered
-    expect(prompt).not.toContain("MEMORY");
+    // Writable blocks render even when empty so the LLM knows they exist
+    expect(prompt).toContain("MEMORY");
+    expect(prompt).toContain("[writable]");
   });
 
   it("forSession before withContext namespaces correctly", async () => {
