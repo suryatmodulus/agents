@@ -249,7 +249,7 @@ export class PostgresSessionProvider implements SessionProvider {
             parts: [
               {
                 type: "text",
-                text: `[Previous conversation summary]\n${comp.summary}`
+                text: comp.summary
               }
             ],
             createdAt: new Date()
