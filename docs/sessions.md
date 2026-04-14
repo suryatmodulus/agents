@@ -694,8 +694,9 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
   parent_id TEXT,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  text_content TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  content_tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', content)) STORED
+  content_tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', text_content)) STORED
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_msg_parent ON assistant_messages (parent_id);
 CREATE INDEX IF NOT EXISTS idx_assistant_msg_session ON assistant_messages (session_id);

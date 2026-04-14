@@ -125,19 +125,21 @@ export class PostgresSessionProvider implements SessionProvider {
     const parent =
       parentId ?? ((await this.latestLeafRow())?.id as string) ?? null;
     const json = JSON.stringify(message);
+    const text = this.extractText(json);
 
     await this.conn.execute(
-      `INSERT INTO assistant_messages (id, session_id, parent_id, role, content)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO assistant_messages (id, session_id, parent_id, role, content, text_content)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO NOTHING`,
-      [message.id, this.sessionId, parent, message.role, json]
+      [message.id, this.sessionId, parent, message.role, json, text]
     );
   }
 
   async updateMessage(message: SessionMessage): Promise<void> {
+    const json = JSON.stringify(message);
     await this.conn.execute(
-      "UPDATE assistant_messages SET content = ? WHERE id = ? AND session_id = ?",
-      [JSON.stringify(message), message.id, this.sessionId]
+      "UPDATE assistant_messages SET content = ?, text_content = ? WHERE id = ? AND session_id = ?",
+      [json, this.extractText(json), message.id, this.sessionId]
     );
   }
 
@@ -200,7 +202,7 @@ export class PostgresSessionProvider implements SessionProvider {
 
   async searchMessages(query: string, limit = 20): Promise<SearchResult[]> {
     const { rows } = await this.conn.execute(
-      `SELECT id, role, content FROM assistant_messages
+      `SELECT id, role, text_content FROM assistant_messages
        WHERE session_id = ? AND content_tsv @@ plainto_tsquery('english', ?)
        ORDER BY ts_rank(content_tsv, plainto_tsquery('english', ?)) DESC
        LIMIT ?`,
@@ -209,7 +211,7 @@ export class PostgresSessionProvider implements SessionProvider {
     return rows.map((r) => ({
       id: r.id as string,
       role: r.role as string,
-      content: this.extractText(r.content as string),
+      content: (r.text_content as string) ?? "",
       createdAt: ""
     }));
   }

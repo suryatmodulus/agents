@@ -89,11 +89,18 @@ class InMemoryPostgres implements PostgresConnection {
     if (!tableMatch) return { rows: [] };
     const table = this.getTable(tableMatch[1]);
 
-    // Simple: UPDATE table SET content = $1 WHERE id = $2 AND session_id = $3
+    // UPDATE table SET content = $1, text_content = $2 WHERE id = $3 AND session_id = $4
+    // or SET content = $1 WHERE ... (context blocks)
+    const setCount = (q.match(/= \$/g) ?? []).length;
+    const idIdx = setCount <= 2 ? 1 : 2;
+    const sessionIdx = setCount <= 2 ? 2 : 3;
     const row = table.find(
-      (r) => r.id === params[1] && r.session_id === params[2]
+      (r) => r.id === params[idIdx] && r.session_id === params[sessionIdx]
     );
-    if (row) row.content = params[0];
+    if (row) {
+      row.content = params[0];
+      if (setCount > 2) row.text_content = params[1];
+    }
     return { rows: [] };
   }
 
