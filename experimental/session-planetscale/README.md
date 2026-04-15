@@ -58,9 +58,7 @@ const session = Session.create(new PostgresSessionProvider(conn, sessionId))
   .withContext("knowledge", {
     provider: new PostgresSearchProvider(conn)
   })
-  .withCachedPrompt(
-    new PostgresContextProvider(conn, `_prompt_${sessionId}`)
-  );
+  .withCachedPrompt(new PostgresContextProvider(conn, `_prompt_${sessionId}`));
 ```
 
 When `Session.create()` receives a `SessionProvider` (not a `SqlProvider`), it skips all SQLite auto-wiring. Context blocks and the prompt cache need explicit providers since there's no DO storage to fall back to.
